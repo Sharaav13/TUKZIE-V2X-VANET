@@ -18,9 +18,14 @@
 #include <string.h>
 #include <inttypes.h>
 #include <Wire.h>
+#include <SPI.h>
 
 // Neo M8M GPS Module
 #include <TinyGPS++.h>
+
+// LSM6DS3 IMU Module
+#include "LSM6.h"
+// #include "SparkFunLSM6DS3.h"
 
 // OLED Display
 #include <Adafruit_GFX.h>
@@ -49,8 +54,19 @@ HardwareSerial HUDSerial(2);   // UART2
 #define SOUTH "S"
 #define EAST "E"
 #define WEST "W"
+// #define GPS_SAMPLING <> // Hz
 HardwareSerial GPSSerial(1); // UART1
 TinyGPSPlus gps;
+
+// LSD6MDS3 IMU Module
+#define IMU_I2C_SDA 6 
+#define IMU_I2C_SCL 7 
+#define IMU_SAMPLING 1 // Hz
+#define ACC_MG_PER_LSB 0.061f 
+#define GYRO_MDPS_PER_LSB 4.375f  
+LSM6 imu;
+// LSM6DS3 imu( I2C_MODE, 0x6B );
+// TwoWire Wire1 = TwoWire(1); // Second instance of I2C
 
 // OLED Display
 #define SCREEN_WIDTH 128
@@ -74,6 +90,12 @@ String direction[] = {"", ""}; // {N/S, E/W}
 float location[] = {0, 0, 0}; // {lat, lon, alt}
 float motion[] = {0, 0}; // {kmph, course}
 float fix[] = {0, 0}; // {sats, hdop}
+// uint32_t lastGPS = 0; // Timestamp of previous GPS sample
+
+// IMU data
+float acc[] = {0, 0, 0}; // {x, y, z}
+float gyro[] = {0, 0, 0}; // {x, y, z}
+uint32_t lastImu = 0; // Timestamp of previous IMU sample
 
 /*
 // Debugging HUDSerial
@@ -184,8 +206,7 @@ void getGpsData(void) {
 }
 
 // All current GPS data into a single string
-size_t gpsToString(char *out, size_t cap)
-{
+size_t gpsToString(char *out, size_t cap) {
     return snprintf(out, cap,
         "%02d-%02d-%04d  %02d:%02d:%02d\n"
         "lat: %.4f deg %s\n"
@@ -201,6 +222,35 @@ size_t gpsToString(char *out, size_t cap)
         motion[0], motion[1],
         (int)fix[0], fix[1]);
 }
+
+// Retrieve GPS data
+void getImuData(void) {
+  imu.read();
+
+  float acc_x = imu.a.x * ACC_MG_PER_LSB / 1000.0; // imu.readFloatAccelX(); 
+  float acc_y = imu.a.y * ACC_MG_PER_LSB / 1000.0; // imu.readFloatAccelY(); 
+  float acc_z = imu.a.z * ACC_MG_PER_LSB / 1000.0; // imu.readFloatAccelZ();
+  acc[0] = acc_x;
+  acc[1] = acc_y;
+  acc[2] = acc_z;
+
+  float gyro_x = imu.g.x * GYRO_MDPS_PER_LSB / 1000.0; // imu.readFloatGyroX();
+  float gyro_y = imu.g.y * GYRO_MDPS_PER_LSB / 1000.0; // imu.readFloatGyroY();
+  float gyro_z = imu.g.z * GYRO_MDPS_PER_LSB / 1000.0; // imu.readFloatGyroZ();
+  gyro[0] = gyro_x;
+  gyro[1] = gyro_y;
+  gyro[2] = gyro_z;
+}
+
+// All current GPS data into a single string
+size_t imuToString(char *out, size_t cap) {
+  
+  return snprintf(out, cap, 
+        "A: %2f %2f %2f\n"
+        "G: %2f %2f %2f",
+        acc[0], acc[1], acc[2],
+        gyro[0], gyro[1], gyro[2]);
+}
 //*************************************************************************************************************************************************
 // SETUP
 //*************************************************************************************************************************************************
@@ -208,9 +258,8 @@ size_t gpsToString(char *out, size_t cap)
 void setup() {
     
   // Initialise OLED display
-  Wire.begin(OLED_I2C_SDA, OLED_I2C_SCL); 
-  
-  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // 0x3C is common I2C address
+  bool status1 = Wire.begin(OLED_I2C_SDA, OLED_I2C_SCL); 
+  if (status1 && (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))) { // 0x3C is common I2C address
     error = true;
     errorMessage += "OLED init failed.\n";
   } else {
@@ -229,7 +278,22 @@ void setup() {
   GPSSerial.begin(GPS_SERIAL_BAUD_RATE, SERIAL_8N1, GPS_RX, GPS_TX); // Neo M8M GPS Module
   delay(1000); push2Screen("GPS initialized.\n", 1, false, true);
   delay(1000);
-  
+
+  // Initialize IMU
+  // Wire1.setPins(6, 7);
+  bool status2 = Wire1.begin(IMU_I2C_SDA, IMU_I2C_SCL);
+  imu.setBus(&Wire1); 
+  if (status2 && !imu.init()) {
+  // if (status1 ||(imu.begin() != 0)) {
+    error = true;
+    errorMessage += "IMU init failed.\n";
+  } else {
+    imu.enableDefault();
+    push2Screen("IMU initialized.\n", 1, false, true);
+    delay(1000);
+  }
+
+  // Finish setup
   display.clearDisplay();
   push2Screen("FINISHED SETUP", 1, true, false);
     delay(5000);
@@ -242,17 +306,28 @@ void setup() {
 void loop() {
   
   if (error) {
-    push2Screen(errorMessage, 2, true, false); // Show errors
+    push2Screen(errorMessage, 1, true, false); // Show errors
     MNSSerial.println(errorMessage); // Debugging
     while(true){}; // Must be a more elegant way to do this
   }
 
+  // Show GPS data
   getGpsData();
   char gps_str[192];
   gpsToString(gps_str, sizeof(gps_str));
-  push2Screen(gps_str, 1, false, false); 
+  // push2Screen(gps_str, 1, false, false); 
   // MNSSerial.println(gps_str); // Debugging
   
+  // Show IMU data
+  if ((millis() - lastImu) >= (1000 / IMU_SAMPLING)) {
+    getImuData();
+    char imu_str[80];
+    imuToString(imu_str, sizeof(imu_str));
+    push2Screen(imu_str, 1, false, false);
+    lastImu = millis();
+    // MNSSerial.println(imu_str); // Debugging
+  }
+
   /*
   if (millis() - lastTx >= 1000) {
     HUDSerial.println("Hello world");
