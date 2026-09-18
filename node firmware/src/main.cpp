@@ -31,6 +31,12 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
+// SD Card Module
+#include <SD.h>
+
+// RA-02 LoRa Module
+// #include <LoRa.h>
+
 //*************************************************************************************************************************************************
 // MACROS & INSTANCES
 //*************************************************************************************************************************************************
@@ -52,30 +58,50 @@ HardwareSerial HUDSerial(2);   // UART2
 // #define PPS 21
 #define NORTH "N"
 #define SOUTH "S"
-#define EAST "E"
-#define WEST "W"
+#define EAST  "E"
+#define WEST  "W"
 // #define GPS_SAMPLING <> // Hz
 HardwareSerial GPSSerial(1); // UART1
 TinyGPSPlus gps;
 
 // LSD6MDS3 IMU Module
-#define IMU_I2C_SDA 6 
-#define IMU_I2C_SCL 7 
-#define IMU_SAMPLING 1 // Hz
-#define ACC_MG_PER_LSB 0.061f 
+#define IMU_I2C_SDA   6 
+#define IMU_I2C_SCL   7 
+#define IMU_SAMPLING  1 // Hz
+#define ACC_MG_PER_LSB    0.061f 
 #define GYRO_MDPS_PER_LSB 4.375f  
 LSM6 imu;
 // LSM6DS3 imu( I2C_MODE, 0x6B );
 // TwoWire Wire1 = TwoWire(1); // Second instance of I2C
 
 // OLED Display
-#define SCREEN_WIDTH 128
+#define SCREEN_WIDTH  128
 #define SCREEN_HEIGHT 64
-#define OLED_I2C_SDA 8 
-#define OLED_I2C_SCL 9 
-#define OLED_RESET -1 // No reset pin
+#define OLED_I2C_SDA  8 
+#define OLED_I2C_SCL  9 
+#define OLED_RESET    -1 // No reset pin
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
+// SD Card Module
+#define SD_CS     10
+#define SD_MOSI   11
+#define SD_SCK    12
+#define SD_MISO   13
+#define SD_SAMPLING 1  // Hz
+SPIClass spiSD(FSPI); 
+
+/*
+// RA-02 LoRa Module
+SPIClass spiLoRa(HSPI);
+#define LORA_SCK   15
+#define LORA_MISO  17
+#define LORA_MOSI  16
+#define LORA_NSS   18 // not free
+#define LORA_RST    8 // not free
+#define LORA_BUSY   5
+#define LORA_DIO1   4
+SPIClass spiLoRa(HSPI); 
+*/
 //*************************************************************************************************************************************************
 // GLOBAL VARIABLES
 //*************************************************************************************************************************************************
@@ -96,6 +122,9 @@ float fix[] = {0, 0}; // {sats, hdop}
 float acc[] = {0, 0, 0}; // {x, y, z}
 float gyro[] = {0, 0, 0}; // {x, y, z}
 uint32_t lastImu = 0; // Timestamp of previous IMU sample
+
+// SD Card Log
+uint32_t lastLog = 0; // Timestamp of previous log
 
 /*
 // Debugging HUDSerial
@@ -244,13 +273,31 @@ void getImuData(void) {
 
 // All current GPS data into a single string
 size_t imuToString(char *out, size_t cap) {
-  
   return snprintf(out, cap, 
         "A: %2f %2f %2f\n"
         "G: %2f %2f %2f",
         acc[0], acc[1], acc[2],
         gyro[0], gyro[1], gyro[2]);
 }
+
+// All recently ollected data into a single string
+size_t dataToString(char *out, size_t cap) {
+  return snprintf(out, cap, 
+        "%02d-%02d-%04d  "
+        "%02d:%02d:%02d  "    
+        "GPS[lat: %.4f deg %s, lon: %.4f deg %s, alt: %.1f m, spd: %.1f kmph, crs: %.1f deg, sats: %d, hdop: %.1f]  "
+        "ACC[%2f, %2f, %2f]  "
+        "GYR[%2f, %2f, %2f]  ",
+        datetime[0], datetime[1], datetime[2], datetime[3], datetime[4], datetime[5],
+        location[0], direction[0],
+        location[1], direction[1],
+        location[2],
+        motion[0], motion[1],
+        (int)fix[0], fix[1],
+        acc[0], acc[1], acc[2],
+        gyro[0], gyro[1], gyro[2]);
+}
+
 //*************************************************************************************************************************************************
 // SETUP
 //*************************************************************************************************************************************************
@@ -293,6 +340,16 @@ void setup() {
     delay(1000);
   }
 
+  // Initialize SD Card
+  spiSD.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
+  if (!SD.begin(SD_CS)) {
+    error = true;
+    errorMessage += "SD init failed.\n";
+  } else {
+    push2Screen("SD initialized.\n", 1, false, true);
+    delay(1000);
+  }
+
   // Finish setup
   display.clearDisplay();
   push2Screen("FINISHED SETUP", 1, true, false);
@@ -313,19 +370,34 @@ void loop() {
 
   // Show GPS data
   getGpsData();
-  char gps_str[192];
-  gpsToString(gps_str, sizeof(gps_str));
+  // char gps_str[192];
+  // gpsToString(gps_str, sizeof(gps_str));
   // push2Screen(gps_str, 1, false, false); 
   // MNSSerial.println(gps_str); // Debugging
   
   // Show IMU data
   if ((millis() - lastImu) >= (1000 / IMU_SAMPLING)) {
     getImuData();
-    char imu_str[80];
-    imuToString(imu_str, sizeof(imu_str));
-    push2Screen(imu_str, 1, false, false);
+    // char imu_str[80];
+    // imuToString(imu_str, sizeof(imu_str));
+    // push2Screen(imu_str, 1, false, false);
     lastImu = millis();
     // MNSSerial.println(imu_str); // Debugging
+  }
+
+  // Log to SD Card
+  if ((millis() - lastLog) >= (1000 / SD_SAMPLING)) {
+    File logFile = SD.open("/tvv_log.txt", FILE_APPEND);
+    if (logFile) {
+      char log_str[192];
+      dataToString(log_str, sizeof(log_str));
+      logFile.println(log_str);
+      logFile.close();
+      push2Screen("Logged to SD", 1, false, false);
+    } else {
+      push2Screen("Failed to open log file", 1, false, false);
+    }
+    lastLog = millis();
   }
 
   /*
