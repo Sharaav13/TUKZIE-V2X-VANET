@@ -4,7 +4,7 @@
 //*************************************************************************************************************************************************
 /*
   Version:  0
-  Date:     18/09/2026
+  Date:     22/09/2026
   Authors:  Sharaav Dhebideen
 
 */
@@ -19,6 +19,7 @@
 #include <inttypes.h>
 #include <Wire.h>
 #include <SPI.h>
+#include <Adafruit_NeoPixel.h>
 
 // Neo M8M GPS Module
 #include <TinyGPS++.h>
@@ -35,7 +36,7 @@
 #include <SD.h>
 
 // RA-02 LoRa Module
-// #include <LoRa.h>
+#include <LoRa.h>
 
 //*************************************************************************************************************************************************
 // MACROS & INSTANCES
@@ -90,18 +91,31 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define SD_SAMPLING 1  // Hz
 SPIClass spiSD(FSPI); 
 
-/*
+// RGB LED
+#define RGB_LED_PIN 48 // Test lora with RGB
+#define NUM_RGB_LEDS 1
+Adafruit_NeoPixel rgb_led = Adafruit_NeoPixel(NUM_RGB_LEDS, RGB_LED_PIN, NEO_GRB + NEO_KHZ800);
+
 // RA-02 LoRa Module
-SPIClass spiLoRa(HSPI);
-#define LORA_SCK   15
-#define LORA_MISO  17
-#define LORA_MOSI  16
-#define LORA_NSS   18 // not free
-#define LORA_RST    8 // not free
-#define LORA_BUSY   5
-#define LORA_DIO1   4
+#define LORA_SCK   39
+#define LORA_MISO  40
+#define LORA_MOSI  41
+#define LORA_NSS   42
+#define LORA_RST   38 
+#define LORA_DIO0  21
+
+#define LORA_FREQ       433E6   // 433 MHz
+#define LORA_BW         125E3   // Hz
+#define LORA_SF         9       // 7 = low latency, 12 = max range
+#define LORA_CR         5       // denominator of 4/x
+#define LORA_SYNC       0x12    // private network
+#define LORA_TXPOWER    17      // dBm via PA_BOOST. Keep <= 17.
+#define LORA_PREAMBLE   8
+
+#define NODE_ID         1
+#define BEACON_MS       2000
 SPIClass spiLoRa(HSPI); 
-*/
+
 //*************************************************************************************************************************************************
 // GLOBAL VARIABLES
 //*************************************************************************************************************************************************
@@ -125,7 +139,7 @@ uint32_t lastImu = 0; // Timestamp of previous IMU sample
 
 // SD Card Log
 uint32_t lastLog = 0; // Timestamp of previous log
-
+uint32_t lastRead = 0; // Timestamp of previous read
 /*
 // Debugging HUDSerial
 int counter = 0;
@@ -133,6 +147,16 @@ int increm = 1;
 uint32_t lastTx = 0;
 String   rxBuf;
 */
+
+// LoRa Module
+volatile bool rxFlag = false;
+volatile int rxLen = 0;
+volatile bool txDone = true;
+volatile bool cadBusy = false;
+volatile bool cadPending = false;
+uint32_t lastBeacon = 0;
+uint32_t seq = 0;
+
 
 //*************************************************************************************************************************************************
 // FUNCTIONS
@@ -298,6 +322,33 @@ size_t dataToString(char *out, size_t cap) {
         gyro[0], gyro[1], gyro[2]);
 }
 
+// Procedure for Rx packet
+void onReceiveISR(int packetSize) { 
+  rxLen = packetSize; 
+  rxFlag = true; 
+}
+
+// Flag packet Tx is done
+void onTxDoneISR() { 
+  txDone = true; 
+}
+
+void sendBeacon() {
+  if (!LoRa.beginPacket()) return;   // radio busy
+  LoRa.print("Hello there!");
+  txDone = false;
+  LoRa.endPacket(true);              // true = async, completion via DIO0
+  // Serial.printf("%lu,TX,%d,%lu,,,\n", millis(), NODE_ID, seq++);
+}
+
+// LoRa Rx data into string
+size_t loraToString(char *out, size_t cap, String content) {
+  return snprintf(out, cap, 
+        "%lu,RX,%s,%d,%.2f,%ld\n",
+        millis(), content.c_str(),
+        LoRa.packetRssi(), LoRa.packetSnr(),
+        LoRa.packetFrequencyError());
+  }
 //*************************************************************************************************************************************************
 // SETUP
 //*************************************************************************************************************************************************
@@ -350,10 +401,37 @@ void setup() {
     delay(1000);
   }
 
+  // Initialise LoRa
+  spiLoRa.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_NSS);
+  LoRa.setSPI(spiLoRa);
+  LoRa.setPins(LORA_NSS, LORA_RST, LORA_DIO0);
+  LoRa.setSPIFrequency(8E6);        // 1E6 for breadboarding
+  
+  if (!LoRa.begin(LORA_FREQ)) {
+    error = true;
+    errorMessage += "LoRa init failed.";
+  } else {
+    LoRa.setSpreadingFactor(LORA_SF); // 12
+    LoRa.setSignalBandwidth(LORA_BW); //125E3
+    LoRa.setCodingRate4(LORA_CR); // 8
+    // LoRa.setPreambleLength(LORA_PREAMBLE);
+    // LoRa.setSyncWord(LORA_SYNC);
+    LoRa.setTxPower(LORA_TXPOWER);    // 20 PA_BOOST output on the RA-02
+    // LoRa.enableCrc();
+
+    LoRa.onReceive(onReceiveISR);
+    LoRa.onTxDone(onTxDoneISR);
+    // LoRa.onCadDone(onCadDoneISR); // Double check
+    LoRa.receive();
+    push2Screen("LoRa initialized.\n", 1, false, true);
+    delay(1000);
+  }
+
   // Finish setup
   display.clearDisplay();
   push2Screen("FINISHED SETUP", 1, true, false);
-    delay(5000);
+  delay(5000);
+  display.clearDisplay();
 }
 
 //*************************************************************************************************************************************************
@@ -385,19 +463,64 @@ void loop() {
     // MNSSerial.println(imu_str); // Debugging
   }
 
+  /*
   // Log to SD Card
   if ((millis() - lastLog) >= (1000 / SD_SAMPLING)) {
     File logFile = SD.open("/tvv_log.txt", FILE_APPEND);
     if (logFile) {
-      char log_str[192];
-      dataToString(log_str, sizeof(log_str));
-      logFile.println(log_str);
+      // char log_str[192];
+      // dataToString(log_str, sizeof(log_str));
+      String log_str = "1";
+      logFile.print(log_str);
+      // logFile.println(log_str);
       logFile.close();
-      push2Screen("Logged to SD", 1, false, false);
+      // push2Screen("Logged to SD", 1, false, false);
     } else {
       push2Screen("Failed to open log file", 1, false, false);
     }
     lastLog = millis();
+  }
+
+  // Read from SD Card
+  if ((millis() - lastRead) >= (2000 / SD_SAMPLING)) {
+    File logFile = SD.open("/tvv_log.txt");
+    if (logFile) {
+      
+      // Read number of lines
+      // size_t len = logFile.size();
+      // push2Screen((String)len, 1, false, false);
+      
+      // Read character by character
+      String contents;
+      while (logFile.available()) {
+        contents += (char)logFile.read();
+      }
+      logFile.close();
+      push2Screen(contents, 1, false, false);
+    } else {
+      push2Screen("Failed to open log file", 1, false, false);
+    }
+    lastRead = millis();
+  }
+  */
+
+  // Check if recieved LoRa packet
+  if (rxFlag) {
+    rxFlag = false;
+    String payload = "";
+    while (LoRa.available()) {
+      payload += (char)LoRa.read();
+    }
+    char rx_str[192];
+    loraToString(rx_str, sizeof(rx_str), payload);
+    push2Screen(rx_str, 1, false, true);
+    LoRa.receive();                  // re-arm
+  }
+
+  // LoRa Tx
+  if (txDone &&  (millis() - lastBeacon > BEACON_MS)) {
+    lastBeacon = millis();
+    sendBeacon();
   }
 
   /*
