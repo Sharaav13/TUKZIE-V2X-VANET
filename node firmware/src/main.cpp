@@ -31,8 +31,11 @@
 #include <Adafruit_SSD1306.h>   // Display
 #include <Adafruit_GFX.h>       // Display
 #include <TinyGPS++.h>          // GPS
-#include "LSM6.h"               // IMU
+// #include "LSM6.h"               // IMU
+#include "SparkFunLSM6DS3.h"    // IMU
 #include <LoRa.h>               // LoRa
+#include "BluetoothSerial.h"    // TUKZIE dashboard
+
 // #include <Adafruit_NeoPixel.h>  // RGB (debugging)
 
 //*************************************************************************************************************************************************
@@ -54,9 +57,9 @@
 // IMU
 #define IMU_I2C_SDA   8   // Pin 8
 #define IMU_I2C_SCL   9   // Pin 9
-#define ACC_MG_PER_LSB    0.061f 
-#define GYRO_MDPS_PER_LSB 4.375f // Check datasheet 
-#define CAL_SAMPLES 1000 // Calibrating IMU 
+// #define ACC_MG_PER_LSB    0.061f 
+// #define GYRO_MDPS_PER_LSB 4.375f // Check datasheet 
+#define CALIBRATION_SAMPLES 1000.0 // Calibrating IMU 
 
 // GPS
 #define GPS_RX 17         // Pin 17, To TX of GPS
@@ -69,8 +72,8 @@
 #define WEST  "W"
 
 // OLED Display
-#define OLED_I2C_SDA  6  // Pin 6
-#define OLED_I2C_SCL  7  // Pin 7
+#define OLED_I2C_SDA  4  // Pin 4
+#define OLED_I2C_SCL  5  // Pin 5
 #define OLED_RESET    -1 // No reset pin
 #define SCREEN_WIDTH  128
 #define SCREEN_HEIGHT 64
@@ -110,6 +113,10 @@
 // #define RGB_LED_PIN   48 // Pin 48
 // #define NUM_RGB_LEDS  1
 
+// Information
+#define PROTO_VERSION  1
+#define FRAME_CSV_MAX  96
+
 //*************************************************************************************************************************************************
 // INSTANCES
 //*************************************************************************************************************************************************
@@ -121,11 +128,15 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 HardwareSerial uartGPS(1);  // UART1
 HardwareSerial uartMNS(2);  // UART2
 
+// Bluetooth 
+BluetoothSerial SerialBT;
+
 SPIClass spiSD(FSPI);
 SPIClass spiLoRa(HSPI);
 
 TinyGPSPlus gps;  
-LSM6 imu;
+// LSM6 imu;
+LSM6DS3 imu( I2C_MODE, 0x6B );  //I2C device address 0x6A
 
 //*************************************************************************************************************************************************
 // GLOBAL VARIABLES
@@ -141,6 +152,12 @@ String errorMessage = "Errors in:\n";
 // IMU
 float acc[3];   // {x, y, z}
 float gyro[3];  // {x, y, z}
+float accOffset[3];   // {x, y, z}
+float gyroOffset[3];  // {x, y, z}
+bool shock = false;
+uint32_t shockStart;
+uint32_t shockDuration;
+bool accident = true;
 
 // GPS
 int datetime[6];      // {day, month, year, hour, min, sec} 
@@ -157,6 +174,8 @@ bool oledOK = false;
 
 // LoRa
 String message; // Make them volatile for interrupts.
+char messageTx[FRAME_CSV_MAX];
+char messageRx[FRAME_CSV_MAX];
 int rssi;
 float snr;
 long freqErr;
@@ -175,6 +194,25 @@ uint32_t lastHudRx = 0;
 uint32_t lastMnsRx = 0;   
 uint32_t lastBeacon = 0;
 uint32_t lastDbg = 0;
+
+//*************************************************************************************************************************************************
+// STRUCTURES
+//*************************************************************************************************************************************************
+
+// Contents of a frame
+struct Frame {
+  uint8_t  ver;
+  char     type;
+  uint8_t  node;
+  uint16_t seq;
+  float    lat;        // signed: negative = southern hemisphere
+  float    lon;        // signed: negative = western hemisphere
+  float    speed;      // km/h
+  float    heading;    // degrees from north
+  float    battery;    // TUKZIE battery percentage
+  float    message;    // messages to send
+};
+
 
 //*************************************************************************************************************************************************
 // FUNCTIONS
@@ -236,25 +274,40 @@ String sdInit(void) {
   }
 }
 
-// Setup IMU
+// Setup IMU and calibrate
 String imuInit(void) {
   
   bool status2 = Wire1.begin(IMU_I2C_SDA, IMU_I2C_SCL);
-  imu.setBus(&Wire1); 
-  
-  if (status2 && imu.init()) {
-    imu.enableDefault();
+    
+  if (status2 && (imu.begin() == 0)) {
     return "IMU init pass.\n";
+    // Calibrates IMU
+    int counter = 0;
+    float gyroSum[] = {0.0, 0.0, 0.0};
+    float accSum[] = {0.0, 0.0, 0.0};
+
+    while (counter != CALIBRATION_SAMPLES) {
+        gyroSum[0] += imu.readFloatGyroX();
+        gyroSum[1] += imu.readFloatGyroY();
+        gyroSum[2] += imu.readFloatGyroZ();
+
+        accSum[0] += imu.readFloatAccelX();
+        accSum[1] += imu.readFloatAccelY();
+        accSum[2] += imu.readFloatAccelZ();
+    }
+
+    gyroOffset[0] = gyroSum[0] / CALIBRATION_SAMPLES;
+    gyroOffset[1] = gyroSum[0] / CALIBRATION_SAMPLES;
+    gyroOffset[2] = gyroSum[0] / CALIBRATION_SAMPLES;
+
+    accOffset[0] = accSum[0] / CALIBRATION_SAMPLES;
+    accOffset[1] = accSum[0] / CALIBRATION_SAMPLES;
+    accOffset[2] = accSum[0] / CALIBRATION_SAMPLES;
   } else {
     error = true;
     return "IMU init failed.\n";
   }
 }
-
-// Calibrates IMU
-//void imuCalibrate(void) {
-
-//}
 
 // Setup MNS communication and serial debugging messages
 String uartMNSInit(void) {
@@ -278,7 +331,8 @@ String loraInit(void) {
     // LoRa.setPreambleLength(LORA_PREAMBLE);
     // LoRa.setSyncWord(LORA_SYNC);
     LoRa.setTxPower(LORA_TXPOWER, PA_OUTPUT_PA_BOOST_PIN);    // PA_BOOST output on the RA-02
-    // LoRa.enableCrc();
+    LoRa.enableCrc();
+    LoRa.setSyncWord(0x12); // #
     // LoRa.onCadDone(onCadDoneISR); 
     
     randomSeed(esp_random());
@@ -335,6 +389,15 @@ String configNode(void) {
   }
 
   return configData;
+}
+
+// Setup Bluetooth communication to TUKZIE dashboard
+String bluetoothInit(void) {
+  if (SerialBT.begin("TUKZIE")) {
+    return "BLE init pass.\n";
+  } else {
+    return "BLE init fail.\n";
+  };
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
@@ -495,23 +558,15 @@ void gpsGet(void) {
 // Used for IMU module testing
 void imuGet(void) {
   
-  imu.read();
-
   // Acceleration
-  float acc_x = imu.a.x * ACC_MG_PER_LSB / 1000.0; // imu.readFloatAccelX(); 
-  float acc_y = imu.a.y * ACC_MG_PER_LSB / 1000.0; // imu.readFloatAccelY(); 
-  float acc_z = imu.a.z * ACC_MG_PER_LSB / 1000.0; // imu.readFloatAccelZ();
-  acc[0] = acc_x;
-  acc[1] = acc_y;
-  acc[2] = acc_z;
-
+  acc[0] = imu.readFloatAccelX() - accOffset[0]; 
+  acc[1] = imu.readFloatAccelY() - accOffset[1];
+  acc[2] = imu.readFloatAccelZ() - accOffset[2];
+ 
   // Gyroscope
-  float gyro_x = imu.g.x * GYRO_MDPS_PER_LSB / 1000.0; // imu.readFloatGyroX();
-  float gyro_y = imu.g.y * GYRO_MDPS_PER_LSB / 1000.0; // imu.readFloatGyroY();
-  float gyro_z = imu.g.z * GYRO_MDPS_PER_LSB / 1000.0; // imu.readFloatGyroZ();
-  gyro[0] = gyro_x;
-  gyro[1] = gyro_y;
-  gyro[2] = gyro_z;
+  gyro[0] = imu.readFloatGyroX() - gyroOffset[0];
+  gyro[1]  = imu.readFloatGyroY() - gyroOffset[1];
+  gyro[2] = imu.readFloatGyroZ() - gyroOffset[2];
 }
 
 // Updates date and time data
@@ -719,6 +774,44 @@ size_t loraTxStr(char *out, size_t cap, String content) {
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
+// INFORMATION INTERPRETATION AND PAYLOAD
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+
+// Creates the data payload in a CSV format
+size_t createFrame(const Frame &f, char *out, size_t cap) {
+  return snprintf(out, cap, "%u,%c,%u,%u,%.6f,%.6f,%.1f,%.1f",
+                  f.ver, f.type, f.node, f.seq,
+                  f.lat, f.lon, f.speed, f.heading);
+}
+
+// Define threshold for shocks
+// Checks terrain
+void shockDetect(void) {
+  
+  float acc_x = abs(imu.readFloatAccelZ() - accOffset[0]);
+  float acc_y = abs(imu.readFloatAccelZ() - accOffset[1]);
+  float acc_z = imu.readFloatAccelZ() - accOffset[2];
+  
+  // Start of a bumpy road
+  if ((acc_z >= 1.8) && (shock = false)) {
+    shockStart = millis();
+    shock = true; 
+  }
+
+  // End of bumpy road
+  if ((acc_z < 1.8) && (shock = true)) {
+    shockDuration = millis() - shockStart;
+    shock = false; 
+  }
+
+  // Checks if there was an accident or toppled over
+  if ((acc_x >= 1) || (acc_x >= 1) || (acc_z >= 1)) {
+    accident = true;
+  }
+}
+
+
+// ------------------------------------------------------------------------------------------------------------------------------------------------
 // DEBUGGING FUNCTIONS 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -755,6 +848,7 @@ void gpsDebug(void) {
 // Displays all IMU data periodically
 void imuDebug(void) {
   if ((millis() - lastImu) >= IMU_SAMPLING) {
+    imuGet();
     char imu_str[192];
     imuStr(imu_str, sizeof(imu_str));
     disp(imu_str, 1, false, false);
@@ -897,10 +991,10 @@ void loop() {
     //while(true) {delay(1000);}
   //}
 
-  //imuDebug();
+  imuDebug();
   //gpsDebug();
   //sdDebug();
   //uartMNSDebug();
-  gpsGet();
-  loraDebug(2);
+  //gpsGet();
+  //loraDebug(2);
 }
