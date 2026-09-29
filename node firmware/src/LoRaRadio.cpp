@@ -3,6 +3,7 @@
 // NODE FIRMWARE - LoRa RADIO
 //*************************************************************************************************************************************************
 
+#include "System.h"
 #include "LoRaRadio.h"
 #include "GPS.h"       // datetime used by loraRxStr()/loraTxStr()
 #include "Display.h"   // loraDebug() calls disp()
@@ -17,10 +18,10 @@ SPIClass spiLoRa(HSPI);
 // GLOBAL VARIABLES
 //*************************************************************************************************************************************************
 
+// Setup
+bool loraOK = false;
+
 // LoRa
-String message; // Make them volatile for interrupts.
-char messageTx[FRAME_CSV_MAX];
-char messageRx[FRAME_CSV_MAX];
 int rssi;
 float snr;
 long freqErr;
@@ -56,6 +57,7 @@ String loraInit(void) {
     randomSeed(esp_random());
     lastBeacon = millis() - random(0, BEACON_INTVL);
 
+    loraOK = true;
     return "LoRa init pass.\n";
   } else {
     error = true;
@@ -86,6 +88,7 @@ void loraTx(String payload) {
 
   if (!LoRa.beginPacket()) {
     return; // radio busy
+    // Have MAC protocol here ?
   } else {
     LoRa.print(payload);
     LoRa.endPacket(true); // true = async, completion via DIO0
@@ -96,11 +99,11 @@ void loraTx(String payload) {
 size_t loraRxStr(char *out, size_t cap, String content) {
   return snprintf(out, cap,
         "%02d-%02d-%04d,\n"       // date
-        "%02d:%02d:%02d,%lu,\n"   // time
+        "%02d:%02d:%02d.%02d,%lu,\n"   // time
         "%d,%.2f,%ld\n"           // RX diagnostics
         "%s\n",                 // received payload
         datetime[DAY], datetime[MONTH], datetime[YEAR],
-        datetime[HOUR], datetime[MINUTE], datetime[SECOND], millis(),
+        datetime[HOUR], datetime[MINUTE], datetime[SECOND], datetime[CENTISECOND], millis(),
         rssi, snr, freqErr,
         message.c_str());
 }
@@ -109,10 +112,10 @@ size_t loraRxStr(char *out, size_t cap, String content) {
 size_t loraTxStr(char *out, size_t cap, String content) {
   return snprintf(out, cap,
         "%02d-%02d-%04d,\n"       // date
-        "%02d:%02d:%02d,%lu,\n"   // time
+        "%02d:%02d:%02d.%02d,%lu,\n"   // time
         "%s\n",                 // transmitted payload
         datetime[DAY], datetime[MONTH], datetime[YEAR],
-        datetime[HOUR], datetime[MINUTE], datetime[SECOND], millis(),
+        datetime[HOUR], datetime[MINUTE], datetime[SECOND], datetime[CENTISECOND], millis(),
         content.c_str());
 }
 
@@ -120,7 +123,8 @@ size_t loraTxStr(char *out, size_t cap, String content) {
 void loraDebug(int select) {
   if ((select == 1) || (select == 2)){
     if ((millis() - lastBeacon) >= BEACON_INTVL) {
-      String tx_msg = "Hello there, Bob!";
+      String tx_msg = "Hello there!";
+      gpsGetAll();
       loraTx(tx_msg);
       char tx_str[192];
       if (select != 2) {
@@ -134,6 +138,7 @@ void loraDebug(int select) {
   if ((select == 0) || (select == 2)){
     message = loraRx();
     if (message != "") {
+      gpsGetAll();
       char rx_str[192];
       loraRxStr(rx_str, sizeof(rx_str), message);
       disp(rx_str, 1, false, false);

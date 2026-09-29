@@ -3,6 +3,7 @@
 // NODE FIRMWARE - SD CARD
 //*************************************************************************************************************************************************
 
+#include "System.h"
 #include "SDCard.h"
 #include "Display.h"   // sdDebug() calls disp()
 
@@ -15,6 +16,9 @@ SPIClass spiSD(FSPI);
 //*************************************************************************************************************************************************
 // GLOBAL VARIABLES
 //*************************************************************************************************************************************************
+
+// Setup
+bool sdOK = false;
 
 // Debug
 uint32_t lastSdWrite = 0; // Timestamp of previous SD Card write
@@ -30,6 +34,7 @@ String sdInit(void) {
   spiSD.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
 
   if (SD.begin(SD_CS, spiSD)) {
+    sdOK = true;
     return "SD init pass.\n";
   } else {
     error = true;
@@ -40,7 +45,7 @@ String sdInit(void) {
 // Read configuration data from SD Card
 String configNode(void) {
 
-  File f = SD.open("/tvv_config.txt");
+  File f = SD.open(CFG_PATH);
   if (!f) {
     error = true;
     return "Config open failed.\n";

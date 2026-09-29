@@ -3,6 +3,7 @@
 // NODE FIRMWARE - GPS & PPS
 //*************************************************************************************************************************************************
 
+#include "System.h"
 #include "GPS.h"
 #include "IMU.h"       // motionGet() calls imuGet()
 #include "Display.h"   // clockDiff() calls disp()
@@ -18,8 +19,11 @@ TinyGPSPlus gps;
 // GLOBAL VARIABLES
 //*************************************************************************************************************************************************
 
+// Setup
+bool gpsOK = false;
+
 // GPS
-int datetime[6];      // {day, month, year, hour, min, sec}
+int datetime[7];      // {day, month, year, hour, min, sec, centisec}
 float location[3];    // {lat, lon, alt} (signed: +N/-S, +E/-W)
 float motion[2];      // {kmph, course}
 float fix[2];         // {sats, hdop}
@@ -51,6 +55,7 @@ String gpsInit(void) {
   uartGPS.begin(GPS_BAUD, SERIAL_8N1, GPS_RX, GPS_TX);
   //pinMode(PPS, INPUT);
   //attachInterrupt(digitalPinToInterrupt(PPS), ppsISR, RISING);
+  gpsOK = true;
   return "GPS init pass.\n";
 }
 
@@ -78,20 +83,14 @@ void datetimeGet(void) {
 
   // Date and time
   if (gps.time.isValid() && gps.date.isValid()) {
-    int year_temp = gps.date.year();
-    int month_temp = gps.date.month();
-    int day_temp = gps.date.day();
-    int hour_temp = gps.time.hour();
-    int minute_temp = gps.time.minute();
-    int sec_temp = gps.time.second();
+    datetime[YEAR] = gps.date.year();
+    datetime[MONTH] = gps.date.month();
+    datetime[DAY] = gps.date.day();
 
-    datetime[YEAR] = year_temp;
-    datetime[MONTH] = month_temp;
-    datetime[DAY] = day_temp;
-
-    datetime[MINUTE] = minute_temp;
-    datetime[SECOND] = sec_temp;
-    int hour_corrected = hour_temp + 2; // SAST = UTC + 2hr
+    datetime[MINUTE] = gps.time.minute();
+    datetime[SECOND] = gps.time.second();
+    datetime[CENTISECOND] = gps.time.centisecond();
+    int hour_corrected = gps.time.hour() + 2; // SAST = UTC + 2hr
     datetime[HOUR] =(hour_corrected < 24) ? hour_corrected : (hour_corrected - 24);
   }
 }
@@ -105,16 +104,13 @@ void locationGet(void) {
 
   // Location
   if (gps.location.isUpdated()) {
-    float lat_temp = gps.location.lat();
-    float lon_temp = gps.location.lng();
-    location[LAT] = lat_temp;
-    location[LON] = lon_temp;
+    location[LAT] = gps.location.lat();
+    location[LON] = gps.location.lng();
   }
 
   // Altitude
   if (gps.altitude.isValid()) {
-    float alt_temp = gps.altitude.meters();
-    location[ALT] = alt_temp;
+    location[ALT] = gps.altitude.meters();
   }
 }
 
@@ -127,14 +123,12 @@ void motionGet(void) {
 
   // Speed
   if (gps.speed.isUpdated()) {
-    float speed_gps_temp = gps.speed.kmph();
-    motion[SPEED] = speed_gps_temp;
+    motion[SPEED] = gps.speed.kmph();
   }
 
   // Course
   if (gps.course.isValid()) {
-    float course_temp = gps.course.deg();
-    motion[COURSE] = course_temp;
+    motion[COURSE] = gps.course.deg();
   }
 }
 
@@ -147,10 +141,8 @@ void fixGet(void) {
 
   // Fix quality
   if (gps.satellites.isValid() && gps.hdop.isValid()) {
-    int sats_temp = gps.satellites.value();
-    float hdop_temp = gps.hdop.hdop();
-    fix[SATS] = sats_temp;
-    fix[HDOP] = hdop_temp;
+    fix[SATS] = gps.satellites.value();
+    fix[HDOP] = gps.hdop.hdop();
   }
 }
 
@@ -165,7 +157,7 @@ void clockDiff(void) {
 size_t gpsStr(char *out, size_t cap) {
 
   return snprintf(out, cap,
-        "%02d-%02d-%04d  %02d:%02d:%02d\n"
+        "%02d-%02d-%04d  %02d:%02d:%02d.%02d\n"
         "lat: %.4f deg\n"
         "lon: %.4f deg\n"
         "alt: %.1f m\n"
@@ -173,7 +165,7 @@ size_t gpsStr(char *out, size_t cap) {
         "course: %.1f deg\n"
         "sats: %d   hdop: %.1f",
         datetime[DAY], datetime[MONTH], datetime[YEAR],
-        datetime[HOUR], datetime[MINUTE], datetime[SECOND],
+        datetime[HOUR], datetime[MINUTE], datetime[SECOND], datetime[CENTISECOND],
         location[LAT],
         location[LON],
         location[ALT],

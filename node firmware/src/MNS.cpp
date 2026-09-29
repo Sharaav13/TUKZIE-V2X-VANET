@@ -3,6 +3,7 @@
 // NODE FIRMWARE - MULTI NETWORK SYSTEM (MNS) UART
 //*************************************************************************************************************************************************
 
+#include "System.h"
 #include "MNS.h"
 #include "Display.h"   // uartMNSDebug() calls disp()
 
@@ -17,6 +18,9 @@ HardwareSerial uartMNS(2);  // UART2
 // GLOBAL VARIABLES
 //*************************************************************************************************************************************************
 
+// Setup
+bool mnsOK = false;
+
 // Debug
 uint32_t lastHudTx = 0;
 
@@ -27,6 +31,7 @@ uint32_t lastHudTx = 0;
 // Setup MNS communication and serial debugging messages
 String uartMNSInit(void) {
   uartMNS.begin(MNS_BAUD, SERIAL_8N1, MNS_RX, MNS_TX);
+  mnsOK = true;
   return "HUD UART init pass.\n";
 }
 

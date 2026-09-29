@@ -6,7 +6,7 @@
 #ifndef TVV_GPS_H
 #define TVV_GPS_H
 
-#include "SysConfig.h"
+#include "System.h"
 
 //*************************************************************************************************************************************************
 // MACROS
@@ -19,6 +19,7 @@
 #define HOUR    3
 #define MINUTE  4
 #define SECOND  5
+#define CENTISECOND  6
 
 // Location indices (location)
 #define LAT  0
@@ -44,8 +45,11 @@ extern TinyGPSPlus gps;
 // GLOBAL VARIABLES
 //*************************************************************************************************************************************************
 
+// Setup
+extern bool gpsOK;
+
 // GPS
-extern int datetime[6];      // {day, month, year, hour, min, sec}
+extern int datetime[7];      // {day, month, year, hour, min, sec, centisec}
 extern float location[3];    // {lat, lon, alt} (signed: +N/-S, +E/-W)
 extern float motion[2];      // {kmph, course}
 extern float fix[2];         // {sats, hdop}

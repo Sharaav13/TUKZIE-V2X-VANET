@@ -21,7 +21,7 @@
 // LIBRARIES
 //*************************************************************************************************************************************************
 
-#include <SysConfig.h>      // External libraries, macros & shared global variables (config, error)
+#include <System.h>         // External libraries, macros & shared global variables (config, error)
 #include <Display.h>        // OLED display
 #include <SDCard.h>         // SD Card
 #include <GPS.h>            // GPS & PPS
@@ -30,29 +30,8 @@
 #include <Bluetooth.h>      // TUKZIE dashboard
 #include <LoRaRadio.h>      // LoRa
 #include <Protocol.h>       // Frame structure & payload
+#include <Debug.h>          // Peripheral debugging
 
-// ------------------------------------------------------------------------------------------------------------------------------------------------
-// MODES
-// ------------------------------------------------------------------------------------------------------------------------------------------------
-
-// Dictate how the node should operate
-
-/*
-// Node operations in normal mode
-void normal(void) {
-
-}
-
-// Node operates in debugging mode
-void debugging(void) {
-
-}
-
-// Node operates in testing mode
-void testing(void) {
-
-}
-*/
 //*************************************************************************************************************************************************
 // SETUP
 //*************************************************************************************************************************************************
@@ -92,9 +71,9 @@ void setup() {
   delay(3000);
 
   // Start configurating node
-  //refreshDisp();
-  //disp(configNode(), 1, false, false);
-  //delay(3000);
+  refreshDisp();
+  disp(configNode(), 1, false, false);
+  delay(3000);
 
   // Add necessary setup error message
   if (error) {
@@ -127,10 +106,17 @@ void loop() {
     //while(true) {delay(1000);}
   //}
 
-  imuDebug();
-  //gpsDebug();
-  //sdDebug();
-  //uartMNSDebug();
-  //gpsDebug();
-  //loraDebug(2);
+  //debug(IMU);
+  //debug(GPS);
+  //debug(SD_CARD);
+  //debug(MNS);
+  //debug(LORA);
+
+  // Collect information
+  gpsGetAll();
+  roadSense();
+
+  // Intepret information
+
+  // Transfer information
 }

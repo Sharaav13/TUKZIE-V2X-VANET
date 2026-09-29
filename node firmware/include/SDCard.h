@@ -6,7 +6,7 @@
 #ifndef TVV_SD_H
 #define TVV_SD_H
 
-#include "SysConfig.h"
+#include "System.h"
 
 //*************************************************************************************************************************************************
 // INSTANCES
@@ -14,6 +14,14 @@
 
 extern SPIClass spiSD;
 
+//*************************************************************************************************************************************************
+// GLOBAL VARIABLES
+//*************************************************************************************************************************************************
+
+// Setup
+extern bool sdOK;
+
+// Debug
 extern uint32_t lastSdWrite; // Timestamp of previous SD Card write
 extern uint32_t lastSdRead;  // Timestamp of previous SD Card read
 

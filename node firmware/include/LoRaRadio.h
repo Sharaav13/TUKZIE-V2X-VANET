@@ -6,7 +6,7 @@
 #ifndef TVV_LORA_H
 #define TVV_LORA_H
 
-#include "SysConfig.h"
+#include "System.h"
 
 //*************************************************************************************************************************************************
 // INSTANCES
@@ -20,10 +20,10 @@ extern uint32_t lastBeacon;
 // GLOBAL VARIABLES
 //*************************************************************************************************************************************************
 
+// Setup
+extern bool loraOK;
+
 // LoRa
-extern String message; // Make them volatile for interrupts.
-extern char messageTx[FRAME_CSV_MAX];
-extern char messageRx[FRAME_CSV_MAX];
 extern int rssi;
 extern float snr;
 extern long freqErr;

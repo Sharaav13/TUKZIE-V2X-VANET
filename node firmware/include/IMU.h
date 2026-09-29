@@ -6,7 +6,7 @@
 #ifndef TVV_IMU_H
 #define TVV_IMU_H
 
-#include "SysConfig.h"
+#include "System.h"
 
 //*************************************************************************************************************************************************
 // MACROS
@@ -71,7 +71,7 @@ void imuGetAll(void);
 
 // Define threshold for jolts
 // Checks terrain
-void senseRoad(void);
+void roadSense(void);
 
 // Converts currently stored IMU data into a single string
 // Used for IMU module testing

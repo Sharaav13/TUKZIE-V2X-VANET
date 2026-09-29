@@ -1,6 +1,6 @@
 //*************************************************************************************************************************************************
 // TUKZIE V2X VANET (TVV)
-// NODE FIRMWARE - SYSTEM CONFIGURATION (LIBRARIES, MACROS & SHARED GLOBAL VARIABLES)
+// NODE FIRMWARE - SYSTEM (LIBRARIES, MACROS & SHARED GLOBAL VARIABLES)
 //*************************************************************************************************************************************************
 /*
   Version:  0
@@ -9,8 +9,8 @@
 */
 //*************************************************************************************************************************************************
 
-#ifndef TVV_SYSCONFIG_H
-#define TVV_SYSCONFIG_H
+#ifndef TVV_SYSTEM_H
+#define TVV_SYSTEM_H
 
 //*************************************************************************************************************************************************
 // LIBRARIES
@@ -44,7 +44,7 @@
 #define SD_SCK    12      // Pin 12
 #define SD_MISO   13      // Pin 13
 #define CFG_FIELDS  3
-// #define CFG_PATH  "/tvv_config.txt"
+#define CFG_PATH  "/config.txt"
 // #define LOG_PATH  "/tvv_log.txt"
 
 // IMU
@@ -112,4 +112,9 @@ extern int config[CFG_FIELDS];
 extern bool error;
 extern String errorMessage;
 
-#endif // TVV_SYSCONFIG_H
+// Payload variables
+extern String message; // Make them volatile for interrupts.
+// extern char messageTx[FRAME_CSV_MAX];
+// extern char messageRx[FRAME_CSV_MAX];
+
+#endif // TVV_SYSTEM_H

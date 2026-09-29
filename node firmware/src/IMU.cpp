@@ -3,6 +3,7 @@
 // NODE FIRMWARE - IMU
 //*************************************************************************************************************************************************
 
+#include "System.h"
 #include "IMU.h"
 #include "Display.h"   // imuDebug() calls disp()
 
@@ -46,7 +47,6 @@ uint32_t lastImu;
 //*************************************************************************************************************************************************
 // FUNCTIONS
 //*************************************************************************************************************************************************
-
 
 // Setup IMU
 String imuInit(void) {
@@ -99,7 +99,7 @@ void imuCalibrate(void) {
     calibrated = true;
 }
 
-// Gets a specific reading from the IMU
+// Gets a specific reading from the IMU on demand
 float imuGet(int reading, int axis) {
   
   float result;
@@ -158,7 +158,7 @@ void imuGetAll (void) {
 
 // Define threshold for jolts
 // Checks terrain
-void senseRoad(void) {
+void roadSense(void) {
 
   pothole = false;
   terrain = false;

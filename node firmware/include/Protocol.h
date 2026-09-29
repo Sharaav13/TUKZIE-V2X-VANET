@@ -6,7 +6,7 @@
 #ifndef TVV_PROTOCOL_H
 #define TVV_PROTOCOL_H
 
-#include "SysConfig.h"
+#include "System.h"
 
 //*************************************************************************************************************************************************
 // STRUCTURES
