@@ -3,48 +3,54 @@
 // NODE FIRMWARE - MULTI NETWORK SYSTEM (MNS) UART
 //*************************************************************************************************************************************************
 
-#include "System.h"
-#include "MNS.h"
-#include "Display.h"   // uartMNSDebug() calls disp()
+#include "system.h"
+#include "mns.h"
 
 //*************************************************************************************************************************************************
 // INSTANCES
 //*************************************************************************************************************************************************
 
-// HardwareSerial Serial(0);   // UART0
 HardwareSerial uartMNS(2);  // UART2
-
-//*************************************************************************************************************************************************
-// GLOBAL VARIABLES
-//*************************************************************************************************************************************************
-
-// Setup
-bool mnsOK = false;
-
-// Debug
-uint32_t lastHudTx = 0;
 
 //*************************************************************************************************************************************************
 // FUNCTIONS
 //*************************************************************************************************************************************************
 
 // Setup MNS communication and serial debugging messages
-String uartMNSInit(void) {
+// Returns true if the MNS UART driver was installed
+bool mnsInit(void) {
   uartMNS.begin(MNS_BAUD, SERIAL_8N1, MNS_RX, MNS_TX);
-  mnsOK = true;
-  return "HUD UART init pass.\n";
+
+  if (!uartMNS) {
+    error = true;
+    errMsg += "MNS: UART driver failed to install\n";
+    return false;
+  }
+
+  return true;
 }
 
-// Debugs if HUD Tx and Rx ports are working
-// Tx and Rx are wired together
-void uartMNSDebug(void) {
-
-  if ((millis() - lastHudTx) >= MNS_TX_INTVL) {
-    uartMNS.println("HUD Tx:" + (String)millis());
-    lastHudTx = millis();
-  }
-
-  while (uartMNS.available() > 0) {
-    disp(String((char)uartMNS.read()), 1, false, true);
-  }
+// Transmits a packet to the MNS
+void mnsTx(void) {
+  char payload[128];
+  snprintf(payload, sizeof(payload),
+  "%06" PRIu32 ","        // date (DDMMYY)
+  "%08" PRIu32 ","        // time (HHMMSSCC)
+  "%.4f,"                 // lat (deg)
+  "%.4f,"                 // lon (deg)
+  "%.1f,"                 // alt (m)
+  "%.1f,"                 // speed (kmph)
+  "%.1f,"                 // heading/course (deg bearing)
+  "%d,"                   // status
+  "%d",                   // message code
+  myself.date,
+  myself.time,
+  myself.lat,
+  myself.lon,
+  myself.alt,
+  myself.speed,
+  myself.course,
+  myself.status,
+  myself.message);
+  uartMNS.println(payload);
 }

@@ -3,9 +3,8 @@
 // NODE FIRMWARE - SD CARD
 //*************************************************************************************************************************************************
 
-#include "System.h"
-#include "SDCard.h"
-#include "Display.h"   // sdDebug() calls disp()
+#include "system.h"
+#include "sdcard.h"
 
 //*************************************************************************************************************************************************
 // INSTANCES
@@ -14,31 +13,22 @@
 SPIClass spiSD(FSPI);
 
 //*************************************************************************************************************************************************
-// GLOBAL VARIABLES
-//*************************************************************************************************************************************************
-
-// Setup
-bool sdOK = false;
-
-// Debug
-uint32_t lastSdWrite = 0; // Timestamp of previous SD Card write
-uint32_t lastSdRead = 0;  // Timestamp of previous SD Card read
-
-//*************************************************************************************************************************************************
 // FUNCTIONS
 //*************************************************************************************************************************************************
 
 // Setup SD Card module
-String sdInit(void) {
+// Returns true if successful
+bool sdInit(void) {
 
   spiSD.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
 
   if (SD.begin(SD_CS, spiSD)) {
     sdOK = true;
-    return "SD init pass.\n";
+    return true;
   } else {
     error = true;
-    return "SD init failed.\n";
+    errMsg += "SD: card not detected or failed to mount\n";
+    return false;
   }
 }
 
@@ -69,6 +59,8 @@ String configNode(void) {
       line = line.substring(comma + 1);
     }
   }
+
+  myself.id = config[0];
 
   String configData = "Config success.\nNode ID: "  + (String)config[0] + "\nUse: ";
   switch (config[1]) {
@@ -122,24 +114,6 @@ void sdWrite(String content, String logFile) {
     f.close();
     // disp("Logged to SD", 1, false, false); // debugging
   } else {
-    errorMessage += "Failed to open log file\n";
-  }
-}
-
-// Writes and reads to the SD card
-void sdDebug(void) {
-
-  String debugFile = "sd_debug";
-
-  if ((millis() - lastSdWrite) >= SD_WRITE_INTVL) {
-    String write_content = (String)millis() + "SD debugging\n";
-    sdWrite(write_content, debugFile);
-    lastSdWrite = millis();
-  }
-
-  if ((millis() - lastSdRead) >= (SD_READ_INTVL)) {
-    String read_content = sdRead(debugFile);
-    disp(read_content, 1, false, false);
-    lastSdRead = millis();
+    errMsg += "SD: failed to open log file\n";
   }
 }

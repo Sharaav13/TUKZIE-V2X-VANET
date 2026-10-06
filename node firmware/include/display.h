@@ -6,7 +6,7 @@
 #ifndef TVV_DISPLAY_H
 #define TVV_DISPLAY_H
 
-#include "System.h"
+#include "system.h"
 
 //*************************************************************************************************************************************************
 // INSTANCES
@@ -26,7 +26,8 @@ extern bool oledOK;
 //*************************************************************************************************************************************************
 
 // Setup OLED display
-String oledInit(void);
+// Returns true if successful
+bool oledInit(void);
 
 // Center text on display
 void centerText(String text);

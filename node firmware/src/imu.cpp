@@ -3,15 +3,8 @@
 // NODE FIRMWARE - IMU
 //*************************************************************************************************************************************************
 
-#include "System.h"
-#include "IMU.h"
-#include "Display.h"   // imuDebug() calls disp()
-
-#define ACC_MG_PER_LSB    0.061f 
-#define GYRO_MDPS_PER_LSB 4.375f // Check datasheet 
-#define CALIBRATION_SAMPLES 1000.0 // Calibrating IMU 
-#define JOLT_G_THRESHOLD 1.8 
-#define JOLT_INTERVAL_THRESHOLD 500
+#include "system.h"
+#include "imu.h"
 
 //*************************************************************************************************************************************************
 // INSTANCES
@@ -23,8 +16,6 @@ LSM6 imu;
 // GLOBAL VARIABLES
 //*************************************************************************************************************************************************
 
-// Setup
-bool imuOK = false;
 bool calibrated = false;
 
 // Current values
@@ -34,35 +25,39 @@ float imuVals[2][3];// {acc => {x, y, z}, gyro => {x, y, z}}
 float offsets [2][3]; // {acc => {x, y, z}, gyro => {x, y, z}}
 
 // Road awareness
-bool jolt = false;
-bool accident = false;
-bool terrain = false;
-bool pothole = false;
-uint32_t joltStart;
-uint32_t joltDuration;
-
-// Debug
-uint32_t lastImu;
+bool vibration = false;
+bool accident = false;  // 1
+bool terrain = false;   // 2
+bool pothole = false;   // 3
+uint32_t vibrationStart;
+uint32_t vibrationDuration;
+int roadAwarenessNum = 0;
 
 //*************************************************************************************************************************************************
 // FUNCTIONS
 //*************************************************************************************************************************************************
 
 // Setup IMU
-String imuInit(void) {
+// Returns true if successful
+bool imuInit(void) {
 
-  bool status2 = Wire1.begin(IMU_I2C_SDA, IMU_I2C_SCL);
-  imu.setBus(&Wire1); 
-  
-  if (status2 && imu.init()) {
-    imu.enableDefault();
-    imuCalibrate();
-    imuOK= true;
-    return "IMU init pass.\n";
-  } else {
+  if (!Wire1.begin(IMU_I2C_SDA, IMU_I2C_SCL)) {
     error = true;
-    return "IMU init failed.\n";
+    errMsg += "IMU: I2C bus failed to start\n";
+    return false;
   }
+  imu.setBus(&Wire1);
+
+  if (!imu.init()) {
+    error = true;
+    errMsg += "IMU: LSM6 not detected\n";
+    return false;
+  }
+
+  imu.enableDefault();
+  imuCalibrate();
+  imuOK= true;
+  return true;
 }
 
 // Calibrates IMU
@@ -156,9 +151,11 @@ void imuGetAll (void) {
   imuVals[GYRO][Z_AXIS] = imuGet(GYRO, Z_AXIS);
 }
 
-// Define threshold for jolts
+// Define threshold for VIBRs
 // Checks terrain
+// Fix according to speed !!
 void roadSense(void) {
+
 
   pothole = false;
   terrain = false;
@@ -167,46 +164,31 @@ void roadSense(void) {
   float acc_y = abs(imuGet(ACC, Y_AXIS));
   float acc_z = imuGet(ACC, Z_AXIS);
 
-  // Sense jolts
-  if ((acc_z >= JOLT_G_THRESHOLD) && (jolt == false)) {
-    joltStart = millis();
-    jolt = true;
+  // Sense VIBRs
+  if ((acc_z >= VIBR_G_THRESHOLD) && (vibration == false)) {
+    vibrationStart = millis();
+    vibration = true;
   }
   
   // Determine rough/bumpy terrain or potholes
-  if (jolt) {
-    joltDuration = millis() - joltStart;
-    if (joltDuration >= JOLT_INTERVAL_THRESHOLD) {
+  if (vibration) {
+    vibrationDuration = millis() - vibrationStart;
+    if (vibrationDuration >= VIBR_INTERVAL_THRESHOLD) {
       terrain = true;
-    } else if ((joltDuration < JOLT_INTERVAL_THRESHOLD) && (acc_z < JOLT_G_THRESHOLD)) {
+      roadAwarenessNum = 2;
+      myself.message = 5;   // Rough terrain is present
+    } else if ((vibrationDuration < VIBR_INTERVAL_THRESHOLD) && (acc_z < VIBR_G_THRESHOLD)) {
       pothole = true;
+      roadAwarenessNum = 3;
+      myself.message = 6;   // Potholes are present
     }
   }
 
   // Checks if there was an accident or toppled over
   if ((acc_x >= 1) || (acc_y >= 1) || (acc_z >= 1)) {
     accident = true;
+    roadAwarenessNum = 1;
+    myself.message = 3;     // Met with accident
   }
-}
 
-// Converts currently stored IMU data into a single string
-// Used for IMU module testing
-size_t imuStr(char *out, size_t cap) {
-
-  return  snprintf(out, cap,
-        "A: %.2f %.2f %.2f\n"
-        "G: %.2f %.2f %.2f",
-        imuVals[ACC][X_AXIS], imuVals[ACC][Y_AXIS], imuVals[ACC][Z_AXIS],
-        imuVals[GYRO][X_AXIS], imuVals[GYRO][Y_AXIS], imuVals[GYRO][Z_AXIS]);
-}
-
-// Displays all IMU data periodically
-void imuDebug(void) {
-  if ((millis() - lastImu) >= IMU_SAMPLING) {
-    imuGetAll();
-    char imu_str[192];
-    imuStr(imu_str, sizeof(imu_str));
-    disp(imu_str, 1, false, false);
-    lastImu = millis();
-  }
 }

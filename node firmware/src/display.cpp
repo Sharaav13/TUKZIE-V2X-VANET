@@ -3,45 +3,43 @@
 // NODE FIRMWARE - OLED DISPLAY
 //*************************************************************************************************************************************************
 
-#include "System.h"
-#include "Display.h"
+#include "system.h"
+#include "display.h"
 
 //*************************************************************************************************************************************************
 // INSTANCES
 //*************************************************************************************************************************************************
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-// Adafruit_NeoPixel rgb = Adafruit_NeoPixel(NUM_RGB_LEDS, RGB_LED_PIN, NEO_GRB + NEO_KHZ800); // (debugging)
-
-//*************************************************************************************************************************************************
-// GLOBAL VARIABLES
-//*************************************************************************************************************************************************
-
-// OLED Display
-bool oledOK = false;
 
 //*************************************************************************************************************************************************
 // FUNCTIONS
 //*************************************************************************************************************************************************
 
 // Setup OLED display
-String oledInit(void) {
+// Returns true if successful
+bool oledInit(void) {
 
-  bool status1 = Wire.begin(OLED_I2C_SDA, OLED_I2C_SCL); // Determine if I2C is ready
-
-  if (status1 && (display.begin(SSD1306_SWITCHCAPVCC, 0x3C))) { // 0x3C is common I2C address
-    oledOK = true;
-    display.setTextColor(SSD1306_WHITE); // White text
-    display.clearDisplay();
-    display.display();
-    return "OLED init pass.\n";
-  } else {
+  if (!Wire.begin(OLED_I2C_SDA, OLED_I2C_SCL)) { // Determine if I2C is ready
     error = true;
-    return "OLED init failed.\n";
+    errMsg += "OLED: I2C bus failed to start\n";
+    return false;
   }
+
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // 0x3C is common I2C address
+    error = true;
+    errMsg += "OLED: display not found at 0x3C\n";
+    return false;
+  }
+
+  oledOK = true;
+  display.setTextColor(SSD1306_WHITE); // White text
+  display.clearDisplay();
+  display.display();
+  return true;
 }
 
-// Center text on display
+// Center text on OLED display
 void centerText(String text) {
   int16_t x1, y1;
   uint16_t w, h;

@@ -3,36 +3,24 @@
 // NODE FIRMWARE - GPS & PPS
 //*************************************************************************************************************************************************
 
-#include "System.h"
-#include "GPS.h"
-#include "IMU.h"       // motionGet() calls imuGet()
-#include "Display.h"   // clockDiff() calls disp()
+#include "system.h"
+#include "gps.h"
+#include "imu.h"
 
 //*************************************************************************************************************************************************
 // INSTANCES
 //*************************************************************************************************************************************************
 
-HardwareSerial uartGPS(1);  // UART1
+HardwareSerial uartGPS(1);  // UART1 // Put into main or system
 TinyGPSPlus gps;
 
 //*************************************************************************************************************************************************
 // GLOBAL VARIABLES
 //*************************************************************************************************************************************************
 
-// Setup
-bool gpsOK = false;
-
-// GPS
-int datetime[7];      // {day, month, year, hour, min, sec, centisec}
-float location[3];    // {lat, lon, alt} (signed: +N/-S, +E/-W)
-float motion[2];      // {kmph, course}
-float fix[2];         // {sats, hdop}
-volatile uint32_t countPps = 0; // in seconds
-volatile uint32_t lastPps = 0;
-volatile uint32_t gapMs  = 0;
-
-// Debug
-uint32_t lastGps = 0;     // Timestamp of previous GPS sample
+volatile uint32_t countPps =  0; // seconds
+volatile uint32_t lastPps =   0;
+volatile uint32_t gapMs  =    0;
 
 //*************************************************************************************************************************************************
 // INTERRUPTS
@@ -51,135 +39,90 @@ void IRAM_ATTR ppsISR() {
 //*************************************************************************************************************************************************
 
 // Setup GPS and PPS
-String gpsInit(void) {
+// Returns true if the GPS UART driver was installed
+bool gpsInit(void) {
   uartGPS.begin(GPS_BAUD, SERIAL_8N1, GPS_RX, GPS_TX);
   //pinMode(PPS, INPUT);
   //attachInterrupt(digitalPinToInterrupt(PPS), ppsISR, RISING);
+
+  if (!uartGPS) {
+    error = true;
+    errMsg += "GPS: UART driver failed to install\n";
+    return false;
+  }
+
   gpsOK = true;
-  return "GPS init pass.\n";
+  return true;
 }
 
-// Retreives GPS data
-// Used for GPS module testing
-void gpsGetAll(void) {
+// Retreives GPS data and saves it to myself
+// Fix quality is saved to myself.sats and myself.hdop
+void gpsGet(void) {
 
   while (uartGPS.available()) {
     gps.encode(uartGPS.read());
   }
 
-  datetimeGet();
-  locationGet();
-  motionGet();
-  fixGet();
-
-}
-
-// Updates date and time data
-void datetimeGet(void) {
-
-  while (uartGPS.available()) {
-    gps.encode(uartGPS.read());
-  }
-
-  // Date and time
+  // Date and time (converted from UTC to SAST)
   if (gps.time.isValid() && gps.date.isValid()) {
-    datetime[YEAR] = gps.date.year();
-    datetime[MONTH] = gps.date.month();
-    datetime[DAY] = gps.date.day();
+    int day   = gps.date.day();
+    int month = gps.date.month();
+    int year  = gps.date.year();
+    int hour  = gps.time.hour() + SAST_OFFSET;
 
-    datetime[MINUTE] = gps.time.minute();
-    datetime[SECOND] = gps.time.second();
-    datetime[CENTISECOND] = gps.time.centisecond();
-    int hour_corrected = gps.time.hour() + 2; // SAST = UTC + 2hr
-    datetime[HOUR] =(hour_corrected < 24) ? hour_corrected : (hour_corrected - 24);
-  }
-}
+    // Roll over into the next day
+    if (hour >= 24) {
+      hour -= 24;
+      day++;
 
-// Updates location data
-void locationGet(void) {
+      int daysInMonth[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+      bool leapYear = ((year % 4 == 0) && (year % 100 != 0)) || (year % 400 == 0);
+      if (leapYear) {
+        daysInMonth[1] = 29;
+      }
 
-  while (uartGPS.available()) {
-    gps.encode(uartGPS.read());
+      // Roll over into the next month
+      if (day > daysInMonth[month - 1]) {
+        day = 1;
+        month++;
+
+        // Roll over into the next year
+        if (month > 12) {
+          month = 1;
+          year++;
+        }
+      }
+    }
+
+    myself.date = (uint32_t)day * 10000 + month * 100 + (year % 100);   // DDMMYY (SAST)
+    myself.time = (uint32_t)hour * 1000000 + gps.time.minute() * 10000
+                + gps.time.second() * 100 + gps.time.centisecond();     // HHMMSSCC (SAST)
   }
 
   // Location
   if (gps.location.isUpdated()) {
-    location[LAT] = gps.location.lat();
-    location[LON] = gps.location.lng();
+    myself.lat = gps.location.lat();
+    myself.lon = gps.location.lng();
   }
 
   // Altitude
   if (gps.altitude.isValid()) {
-    location[ALT] = gps.altitude.meters();
-  }
-}
-
-// Updates motion data
-void motionGet(void) {
-
-  while (uartGPS.available()) {
-    gps.encode(uartGPS.read());
+    myself.alt = gps.altitude.meters();
   }
 
   // Speed
   if (gps.speed.isUpdated()) {
-    motion[SPEED] = gps.speed.kmph();
+    myself.speed  = gps.speed.kmph();
   }
 
   // Course
   if (gps.course.isValid()) {
-    motion[COURSE] = gps.course.deg();
-  }
-}
-
-// Updates satellite fix data
-void fixGet(void) {
-
-  while (uartGPS.available()) {
-    gps.encode(uartGPS.read());
+    myself.course = gps.course.deg();
   }
 
   // Fix quality
   if (gps.satellites.isValid() && gps.hdop.isValid()) {
-    fix[SATS] = gps.satellites.value();
-    fix[HDOP] = gps.hdop.hdop();
-  }
-}
-
-// Calculates the error in clock synchronisation with PPS
-void clockDiff(void) {
-  String clock_diff = "PPS Count = " + String(countPps) + "\n" + "Clock erro = " + String(gapMs);
-  disp(clock_diff, 1, false, false);
-}
-
-// Converts currently stored GPS data into a single string
-// Used for GPS module testing
-size_t gpsStr(char *out, size_t cap) {
-
-  return snprintf(out, cap,
-        "%02d-%02d-%04d  %02d:%02d:%02d.%02d\n"
-        "lat: %.4f deg\n"
-        "lon: %.4f deg\n"
-        "alt: %.1f m\n"
-        "speed: %.1f kmph\n"
-        "course: %.1f deg\n"
-        "sats: %d   hdop: %.1f",
-        datetime[DAY], datetime[MONTH], datetime[YEAR],
-        datetime[HOUR], datetime[MINUTE], datetime[SECOND], datetime[CENTISECOND],
-        location[LAT],
-        location[LON],
-        location[ALT],
-        motion[SPEED], motion[COURSE],
-        (int)fix[SATS], fix[HDOP]);
-}
-
-// Displays all GPS data periodically
-void gpsDebug(void) {
-  if ((millis() - lastGps) >= GPS_SAMPLING) {
-    gpsGetAll();
-    char gps_str[192];
-    gpsStr(gps_str, sizeof(gps_str));
-    disp(gps_str, 1, false, false);
-    lastGps = millis();
+    myself.sats = gps.satellites.value();
+    myself.hdop = gps.hdop.hdop();
   }
 }

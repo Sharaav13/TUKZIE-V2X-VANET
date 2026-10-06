@@ -6,7 +6,7 @@
 #ifndef TVV_SD_H
 #define TVV_SD_H
 
-#include "System.h"
+#include "system.h"
 
 //*************************************************************************************************************************************************
 // INSTANCES
@@ -21,16 +21,13 @@ extern SPIClass spiSD;
 // Setup
 extern bool sdOK;
 
-// Debug
-extern uint32_t lastSdWrite; // Timestamp of previous SD Card write
-extern uint32_t lastSdRead;  // Timestamp of previous SD Card read
-
 //*************************************************************************************************************************************************
 // FUNCTIONS
 //*************************************************************************************************************************************************
 
 // Setup SD Card module
-String sdInit(void);
+// Returns true if successful
+bool sdInit(void);
 
 // Read configuration data from SD Card
 String configNode(void);
@@ -42,8 +39,5 @@ String sdRead(String readFile);
 // Write/Log contents to SD Card
 // Used for node debugging and testing
 void sdWrite(String content, String logFile);
-
-// Writes and reads to the SD card
-void sdDebug(void);
 
 #endif // TVV_SD_H

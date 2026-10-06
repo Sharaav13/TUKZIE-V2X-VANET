@@ -6,7 +6,7 @@
 #ifndef TVV_MNS_H
 #define TVV_MNS_H
 
-#include "System.h"
+#include "system.h"
 
 //*************************************************************************************************************************************************
 // INSTANCES
@@ -21,18 +21,15 @@ extern HardwareSerial uartMNS;  // UART2
 // Setup
 extern bool mnsOK;
 
-// Debug
-extern uint32_t lastHudTx;
-
 //*************************************************************************************************************************************************
 // FUNCTIONS
 //*************************************************************************************************************************************************
 
 // Setup MNS communication and serial debugging messages
-String uartMNSInit(void);
+// Returns true if the MNS UART driver was installed
+bool mnsInit(void);
 
-// Debugs if HUD Tx and Rx ports are working 
-// Tx and Rx are wired together
-void uartMNSDebug(void);
+// Transmits a packet to the MNS
+void mnsTx(void);
 
 #endif // TVV_MNS_H

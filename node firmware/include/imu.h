@@ -6,20 +6,7 @@
 #ifndef TVV_IMU_H
 #define TVV_IMU_H
 
-#include "System.h"
-
-//*************************************************************************************************************************************************
-// MACROS
-//*************************************************************************************************************************************************
-
-// Reading indices (first index of imuVals/offsets, reading argument of imuGet)
-#define ACC   0
-#define GYRO  1
-
-// Axis indices (second index of imuVals/offsets, axis argument of imuGet)
-#define X_AXIS  0
-#define Y_AXIS  1
-#define Z_AXIS  2
+#include "system.h"
 
 //*************************************************************************************************************************************************
 // INSTANCES
@@ -43,26 +30,25 @@ extern float offsets[2][3];  // {acc => {x, y, z}, gyro => {x, y, z}}
 
 // Road awareness
 extern bool jolt;
-extern bool accident;
-extern bool terrain;
-extern bool pothole;
+extern bool accident;  // 1
+extern bool terrain;   // 2
+extern bool pothole;   // 3
 extern uint32_t joltStart;
 extern uint32_t joltDuration;
-
-// Debug
-extern uint32_t lastImu;     // Timestamp of previous IMU sample
+extern int roadAwarenessNum;  // 0 = none, 1 = accident, 2 = terrain, 3 = pothole
 
 //*************************************************************************************************************************************************
 // FUNCTIONS
 //*************************************************************************************************************************************************
 
 // Setup IMU and calibrate
-String imuInit(void);
+// Returns true if successful
+bool imuInit(void);
 
 // Calibrates IMU
 void imuCalibrate(void);
 
-// Gets a specific reading from the IMU
+// Gets a specific reading from the IMU on demand
 // reading: ACC or GYRO | axis: X_AXIS, Y_AXIS or Z_AXIS
 float imuGet(int reading, int axis);
 
@@ -71,13 +57,7 @@ void imuGetAll(void);
 
 // Define threshold for jolts
 // Checks terrain
+// Fix according to speed !!
 void roadSense(void);
-
-// Converts currently stored IMU data into a single string
-// Used for IMU module testing
-size_t imuStr(char *out, size_t cap);
-
-// Displays all IMU data periodically
-void imuDebug(void);
 
 #endif // TVV_IMU_H

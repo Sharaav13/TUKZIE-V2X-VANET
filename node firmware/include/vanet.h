@@ -1,12 +1,12 @@
 //*************************************************************************************************************************************************
 // TUKZIE V2X VANET (TVV)
-// NODE FIRMWARE - LoRa RADIO
+// NODE FIRMWARE - VANET (LoRa RADIO & ROUTING)
 //*************************************************************************************************************************************************
 
-#ifndef TVV_LORA_H
-#define TVV_LORA_H
+#ifndef TVV_VANET_H
+#define TVV_VANET_H
 
-#include "System.h"
+#include "system.h"
 
 //*************************************************************************************************************************************************
 // INSTANCES
@@ -14,40 +14,52 @@
 
 extern SPIClass spiLoRa;
 
-extern uint32_t lastBeacon;
-
 //*************************************************************************************************************************************************
 // GLOBAL VARIABLES
 //*************************************************************************************************************************************************
 
-// Setup
-extern bool loraOK;
+// Rx packet handling flags
+extern bool extract;
+extern bool pass;
+extern bool update;
+extern bool add;
 
 // LoRa
-extern int rssi;
-extern float snr;
-extern long freqErr;
+extern uint32_t lastLora;
+
+// Routing
+extern byte peers;
+extern Data cluster[MAX_PEERS];
 
 //*************************************************************************************************************************************************
 // FUNCTIONS
 //*************************************************************************************************************************************************
 
 // Setup LoRa
-String loraInit(void);
+// Returns true if successful
+bool vanetInit(void);
 
 // Procedure for receiving LoRa packet
-String loraRx(void);
+// Returns the message, or -1 otherwise
+int vanetRx(Data &buffer);
+
+// Checks the ID
+int analyseId(byte id, byte myId);
+
+// Updates the peer information within a cluster
+void updateCluster(Data buffer);
 
 // Procedure for transmitting LoRa packet
-void loraTx(String payload);
+void vanetTx(byte dest);
 
-// Converts LoRa Rx information into a single string
-size_t loraRxStr(char *out, size_t cap, String content);
+// Calculates the 3D straight line distance (km) between two GPS positions
+// lat/lon in degrees, alt in metres above the ellipsoid
+float calcDistance(Data node1, Data node2);
 
-// Converts LoRa Tx information into a single string
-size_t loraTxStr(char *out, size_t cap, String content);
+// Sets the Rx packet handling flags from the destination and source IDs
+void handleRx(byte destId, byte srcId, byte myId);
 
-// Shows LoRa Tx and Rx
-void loraDebug(int select);
+// Resets all the flags
+void resetRxFlags(void);
 
-#endif // TVV_LORA_H
+#endif // TVV_VANET_H

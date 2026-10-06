@@ -21,16 +21,41 @@
 // LIBRARIES
 //*************************************************************************************************************************************************
 
-#include <System.h>         // External libraries, macros & shared global variables (config, error)
-#include <Display.h>        // OLED display
-#include <SDCard.h>         // SD Card
-#include <GPS.h>            // GPS & PPS
-#include <IMU.h>            // IMU
-#include <MNS.h>            // MNS UART
-#include <Bluetooth.h>      // TUKZIE dashboard
-#include <LoRaRadio.h>      // LoRa
-#include <Protocol.h>       // Frame structure & payload
-#include <Debug.h>          // Peripheral debugging
+#include <system.h>         // External libraries, macros, Data struct & shared global variables
+#include <display.h>        // OLED display
+#include <sdcard.h>         // SD Card
+#include <gps.h>            // GPS & PPS
+#include <imu.h>            // IMU
+#include <mns.h>            // MNS UART
+#include <dashboard.h>      // TUKZIE dashboard
+#include <vanet.h>          // LoRa
+#include <debug.h>          // Peripheral debugging
+
+//*************************************************************************************************************************************************
+// GLOBAL VARIABLES
+//*************************************************************************************************************************************************
+
+// Initialisation results (true = successful)
+bool mnsReady = false;
+bool oledReady = false;
+bool rgbReady = false;
+bool sdReady = false;
+bool gpsReady = false;
+bool imuReady = false;
+bool vanetReady = false;
+bool dashReady = false;
+
+//*************************************************************************************************************************************************
+// FUNCTIONS
+//*************************************************************************************************************************************************
+
+// Creates an init status message and flags an error if the init failed
+String initStatus(String name, bool ready) {
+  if (!ready) {
+    error = true;
+  }
+  return name + (ready ? " init pass.\n" : " init failed.\n");
+}
 
 //*************************************************************************************************************************************************
 // SETUP
@@ -42,10 +67,10 @@ void setup() {
   Serial.begin(SERIAL_BAUD);
 
   // Initialise Tukzie interfaces
-  String mnsMessage = uartMNSInit();
+  mnsReady = mnsInit();
 
   // Initialise OLED
-  String oledMessage = oledInit();
+  oledReady = oledInit();
 
   disp("TUKZIE V2X", 2, true, false);
   delay(2000);
@@ -55,19 +80,29 @@ void setup() {
   refreshDisp();
 
   // Show existing init messages
-  disp(mnsMessage, 1, false, false);
+  disp(initStatus("MNS", mnsReady), 1, false, false);
   delay(1000);
-  disp(oledMessage, 1, false, true);
+  disp(initStatus("OLED", oledReady), 1, false, true);
   delay(1000);
 
   // Initialise other peripherals
-  disp(sdInit(), 1, false, true);
+  rgbReady = rgbInit();
+  disp(initStatus("RGB", rgbReady), 1, false, true);
   delay(1000);
-  disp(gpsInit(), 1, false, true);
+  sdReady = sdInit();
+  disp(initStatus("SD", sdReady), 1, false, true);
   delay(1000);
-  disp(imuInit(), 1, false, true);
+  gpsReady = gpsInit();
+  disp(initStatus("GPS", gpsReady), 1, false, true);
   delay(1000);
-  disp(loraInit(), 1, false, true);
+  imuReady = imuInit();
+  disp(initStatus("IMU", imuReady), 1, false, true);
+  delay(1000);
+  vanetReady = vanetInit();
+  disp(initStatus("LoRa", vanetReady), 1, false, true);
+  delay(1000);
+  dashReady = dashInit();
+  disp(initStatus("BLE", dashReady), 1, false, true);
   delay(3000);
 
   // Start configurating node
@@ -77,7 +112,7 @@ void setup() {
 
   // Add necessary setup error message
   if (error) {
-    errorMessage += "Setting up\n";
+    errMsg += "Setup: errors occurred during boot\n";
   }
 
   // Indicate setting up finished
@@ -86,7 +121,7 @@ void setup() {
   delay(3000);
 
   if (error) {
-    disp(errorMessage, 1, false, false);
+    disp(errMsg, 1, false, false);
     delay(3000);
   }
 
@@ -102,7 +137,7 @@ void loop() {
   // Modify for debugging operation => wantthe errors to show without halting function
   // Show error in setup or operation
   //if (error) {
-    //disp(errorMessage, 1, false, false);
+    //disp(errMsg, 1, false, false);
     //while(true) {delay(1000);}
   //}
 
@@ -113,7 +148,7 @@ void loop() {
   //debug(LORA);
 
   // Collect information
-  gpsGetAll();
+  gpsGet();
   roadSense();
 
   // Intepret information
