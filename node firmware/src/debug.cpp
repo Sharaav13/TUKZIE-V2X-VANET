@@ -6,85 +6,80 @@
 #include "system.h"
 #include "debug.h"
 #include "display.h"
-#include "sdcard.h"
-#include "gps.h"
-#include "imu.h"
-#include "mns.h"
+#include "storage.h"
+#include "sensing.h"
+#include "dashboard.h"
 #include "vanet.h"
-
-//*************************************************************************************************************************************************
-// GLOBAL VARIABLES
-//*************************************************************************************************************************************************
-
-// Timestamps of previous debug actions
-uint32_t lastSdWrite = 0; // Timestamp of previous SD Card write
-uint32_t lastSdRead = 0;  // Timestamp of previous SD Card read
-uint32_t lastGps = 0;     // Timestamp of previous GPS sample
-uint32_t lastImu = 0;     // Timestamp of previous IMU sample
-uint32_t lastHudTx = 0;   // Timestamp of previous MNS transmission
-uint32_t lastBeacon = 0;  // Timestamp of previous LoRa transmission
 
 //*************************************************************************************************************************************************
 // FUNCTIONS
 //*************************************************************************************************************************************************
 
-// Runs the debug routine of the selected peripheral
-void debug(int peripheral) {
+/*
+  Runs the debug routine of the selected peripheral
+*/
+void debug(uint8_t peripheral) {
 
   switch (peripheral) {
-    case SD_CARD:
+    case DBG_SD_CARD:
       sdDebug();
       break;
-    case GPS:
+    case DBG_GPS:
       gpsDebug();
       break;
-    case PPS_CLOCK:
+    case DBG_PPS_CLOCK:
       clockDiff();
       break;
-    case IMU:
+    case DBG_IMU:
       imuDebug();
       break;
-    case MNS:
-      uartMNSDebug();
+    case DBG_DASH:
+      dashDebug();
       break;
-    case LORA_RX:
+    case DBG_LORA_RX:
       loraDebug(0);
       break;
-    case LORA_TX:
+    case DBG_LORA_TX:
       loraDebug(1);
       break;
-    case LORA:
+    case DBG_LORA:
       loraDebug(2);
       break;
   }
 }
 
-// Writes and reads to the SD card
+/*
+  Writes and reads to the SD card
+*/
 void sdDebug(void) {
 
-  String debugFile = "sd_debug";
+  const char *debugFile = "sd_debug";
 
-  if ((millis() - lastSdWrite) >= SD_WRITE_INTVL) {
+  if ((millis() - storage.lastWrite) >= SD_WRITE_INTVL) {
     String write_content = (String)millis() + "SD debugging\n";
-    sdWrite(write_content, debugFile);
-    lastSdWrite = millis();
+    storage.write(write_content, debugFile);
+    storage.lastWrite = millis();
   }
 
-  if ((millis() - lastSdRead) >= (SD_READ_INTVL)) {
-    String read_content = sdRead(debugFile);
-    disp(read_content, 1, false, false);
-    lastSdRead = millis();
+  if ((millis() - storage.lastRead) >= (SD_READ_INTVL)) {
+    String read_content = storage.read(debugFile);
+    oled.disp(read_content, 1, false, false);
+    storage.lastRead = millis();
   }
 }
 
-// Calculates the error in clock synchronisation with PPS
+/*
+  Calculates the error in clock synchronisation with PPS
+*/
 void clockDiff(void) {
   String clock_diff = "PPS Count = " + String(countPps) + "\n" + "Clock erro = " + String(gapMs);
-  disp(clock_diff, 1, false, false);
+  oled.disp(clock_diff, 1, false, false);
 }
 
-// Converts currently stored GPS data into a single string
-// Used for GPS module testing
+/*
+  Converts currently stored GPS data into a single string
+  Used for GPS module testing
+*/
 size_t gpsStr(char *out, size_t cap) {
 
   return snprintf(out, cap,
@@ -103,54 +98,64 @@ size_t gpsStr(char *out, size_t cap) {
         myself.sats, myself.hdop);
 }
 
-// Displays all GPS data periodically
+/*
+  Displays all GPS data periodically
+*/
 void gpsDebug(void) {
-  if ((millis() - lastGps) >= GPS_SAMPLING) {
-    gpsGet();
+  if ((millis() - gps.lastSample) >= GPS_SAMPLING) {
+    gps.get();
     char gps_str[192];
     gpsStr(gps_str, sizeof(gps_str));
-    disp(gps_str, 1, false, false);
-    lastGps = millis();
+    oled.disp(gps_str, 1, false, false);
+    gps.lastSample = millis();
   }
 }
 
-// Converts currently stored IMU data into a single string
-// Used for IMU module testing
+/*
+  Converts currently stored IMU data into a single string
+  Used for IMU module testing
+*/
 size_t imuStr(char *out, size_t cap) {
 
   return  snprintf(out, cap,
         "A: %.2f %.2f %.2f\n"
         "G: %.2f %.2f %.2f",
-        imuVals[ACC][X_AXIS], imuVals[ACC][Y_AXIS], imuVals[ACC][Z_AXIS],
-        imuVals[GYRO][X_AXIS], imuVals[GYRO][Y_AXIS], imuVals[GYRO][Z_AXIS]);
+        imu.acc[X_AXIS], imu.acc[Y_AXIS], imu.acc[Z_AXIS],
+        imu.gyro[X_AXIS], imu.gyro[Y_AXIS], imu.gyro[Z_AXIS]);
 }
 
-// Displays all IMU data periodically
+/*
+  Displays all IMU data periodically
+*/
 void imuDebug(void) {
-  if ((millis() - lastImu) >= IMU_SAMPLING) {
-    imuGetAll();
+  if ((millis() - imu.lastSample) >= IMU_SAMPLING) {
+    imu.getAll();
     char imu_str[192];
     imuStr(imu_str, sizeof(imu_str));
-    disp(imu_str, 1, false, false);
-    lastImu = millis();
+    oled.disp(imu_str, 1, false, false);
+    imu.lastSample = millis();
   }
 }
 
-// Debugs if HUD Tx and Rx ports are working
-// Tx and Rx are wired together
-void uartMNSDebug(void) {
+/*
+  Debugs if dashboard Tx and Rx ports are working
+  Tx and Rx are wired together
+*/
+void dashDebug(void) {
 
-  if ((millis() - lastHudTx) >= MNS_TX_INTVL) {
-    uartMNS.println("HUD Tx:" + (String)millis());
-    lastHudTx = millis();
+  if ((millis() - dash.lastTx) >= DASH_TX_INTVL) {
+    dash.uart.println("Dash Tx:" + (String)millis());
+    dash.lastTx = millis();
   }
 
-  while (uartMNS.available() > 0) {
-    disp(String((char)uartMNS.read()), 1, false, true);
+  while (dash.uart.available() > 0) {
+    oled.disp(String((char)dash.uart.read()), 1, false, true);
   }
 }
 
-// Procedure for receiving LoRa packet
+/*
+  Procedure for receiving LoRa packet
+*/
 String loraRx(void) {
 
   String msg = "";
@@ -168,7 +173,9 @@ String loraRx(void) {
   return msg;
 }
 
-// Procedure for transmitting LoRa packet
+/*
+  Procedure for transmitting LoRa packet
+*/
 void loraTx(String payload) {
 
   if (!LoRa.beginPacket()) {
@@ -179,7 +186,9 @@ void loraTx(String payload) {
   }
 }
 
-// Converts LoRa Rx information into a single string
+/*
+  Converts LoRa Rx information into a single string
+*/
 size_t loraRxStr(char *out, size_t cap, String pkt) {
   return snprintf(out, cap,
         "RX:"
@@ -193,7 +202,9 @@ size_t loraRxStr(char *out, size_t cap, String pkt) {
         pkt.c_str());
 }
 
-// Converts LoRa Tx information into a single string
+/*
+  Converts LoRa Tx information into a single string
+*/
 size_t loraTxStr(char *out, size_t cap, String pkt) {
   return snprintf(out, cap,
         "TX: "
@@ -201,8 +212,13 @@ size_t loraTxStr(char *out, size_t cap, String pkt) {
         pkt.c_str());
 }
 
-// Shows LoRa Tx and Rx
-void loraDebug(int select) {
+/*
+  Shows LoRa Tx and Rx
+*/
+void loraDebug(uint8_t select) {
+
+  static uint32_t lastBeacon = 0;   // previous LoRa debug transmission (kept between calls)
+
   if ((select == 1) || (select == 2)){
     if ((millis() - lastBeacon) >= BEACON_INTVL) {
       String txPkt = "Hello there!";
@@ -210,7 +226,7 @@ void loraDebug(int select) {
       char txStr[192];
       if (select != 2) {
         loraTxStr(txStr, sizeof(txStr), txPkt);
-        disp(txStr, 1, false, false);
+        oled.disp(txStr, 1, false, false);
       }
       lastBeacon = millis();
     }
@@ -221,7 +237,7 @@ void loraDebug(int select) {
     if (rxPkt != "") {
       char rxStr[192];
       loraRxStr(rxStr, sizeof(rxStr), rxPkt);
-      disp(rxStr, 1, false, false);
+      oled.disp(rxStr, 1, false, false);
     }
   }
 }

@@ -1,148 +1,208 @@
 //*************************************************************************************************************************************************
 // TUKZIE V2X VANET (TVV)
-// NODE FIRMWARE - VANET (LoRa RADIO & ROUTING)
+// NODE FIRMWARE - VANET
 //*************************************************************************************************************************************************
 
 #include "system.h"
 #include "vanet.h"
 
-// Discard or retransmit if low snr and high freq error
-
 //*************************************************************************************************************************************************
 // INSTANCES
 //*************************************************************************************************************************************************
 
-SPIClass spiLoRa(HSPI);
+Vanet vanet;
 
 //*************************************************************************************************************************************************
-// GLOBAL VARIABLES
+// FUNCTIONS - CLUSTER
 //*************************************************************************************************************************************************
-
-// Routing
-// migration of all glbal varibles into a module called data
-// Next hop problem discuss in report ~ I get a pkt that was forawrded by a peer but dest!=me and src!=peers
-// Dash board send checks if teh node fields are empty or not before sending
-// need to have ttl?
-
-// Can only be on CAD, TX and RX at a time, cannot do simultaneously
-// have a dedicated RX and TX lora module
-
-// destination ID
-// ttl
-// date
-// time
-// src ID
-// primary src ID
-// core message
 
 /*
-SENDING A PACKET TO A SPECIFIC NODE
-1. Send paket with the above fields
-
-RECIEVING A PACKET FOR A SPECIFIC NODE
-if (dest != me but dest is within my routing table) {
-    make recived packet payload and decrease its ttl;
-    send new packet with this payload;
+  Returns the index of the peer with the given ID, or -1 if it is not a peer
+*/
+int Cluster::find(byte id) {
+  for (uint8_t i = 0; i < count; i++) {
+    if (peerTable[i].id == id) {
+      return i;
+    }
+  }
+  return -1;
 }
 
-ignore ttl of 1
+/*
+  Adds a new peer or refreshes an existing peer's information
+  Returns false if the peer is new and the cluster is full
+*/
+bool Cluster::updatePeer(const Data &buffer) {
 
-if (dest == me) {
-    parse packet
-    interpret packet
-    send info to appropriate places
+  int i = find(buffer.id);
+
+  if (i < 0) { 
+    if (count >= MAX_PEERS) {
+      return false;
+    }
+    i = count;
+    count++; // New peer
+  }
+
+  Data &peer = peerTable[i];    // reference, so the stored peer is changed
+  peer.id = buffer.id;
+  peer.fleetId = buffer.fleetId;
+  peer.lat = buffer.lat;
+  peer.lon = buffer.lon;
+  peer.alt = buffer.alt;
+  peer.speed = buffer.speed;
+  peer.course = buffer.course;
+  peer.tasks = buffer.tasks;
+  peer.status = buffer.status;
+  peer.message = buffer.message;
+  peer.battery = buffer.battery;
+  peer.date = buffer.date;
+  peer.time = buffer.time;
+  peer.rssi = buffer.rssi;
+  peer.snr = buffer.snr;
+  peer.freqErr = buffer.freqErr;
+  // peer.distance = myself.distanceTo(buffer);
+
+  return true;
 }
 
-need some sort of buffer for these messages
-
-
+//*************************************************************************************************************************************************
+// INTERRUPTS
+//*************************************************************************************************************************************************
+/*
+  The radio signals events on its DIO pins (mapping set by REG_DIO_MAPPING_1, 0x00 by default and in LoRa.receive):
+    DIO0: RxDone in Rx mode (CadDone if remapped for CAD)
+    DIO1: RxTimeout in single Rx mode, CadDetected in CAD mode (channel busy, for listen-before-talk MAC)
+  The ISRs only set flags: SPI must not be used inside an interrupt, so the radio is read later in rx()
 */
 
-// Converts the Link state table into a string
+/*
+  LoRa DIO0 (RxDone): sets vanet.rxFlag
+*/
+void IRAM_ATTR loraDio0ISR() {
+  vanet.rxFlag = true;
+}
 
-// Converts the entire routing table into a string
-
-// Implelment ttl
-// Change ints to bytes where appropriate
-
-bool extract = true;
-bool pass = false;
-bool update = false;
-bool add = false;
-
-uint32_t lastLora = 0;
-
-int peers = 0;
-Data cluster[MAX_PEERS];
+/*
+  LoRa DIO1 (RxTimeout / CadDetected): sets vanet.dio1Flag
+*/
+void IRAM_ATTR loraDio1ISR() {
+  vanet.dio1Flag = true;
+}
 
 //*************************************************************************************************************************************************
-// FUNCTIONS
+// FUNCTIONS - VANET
 //*************************************************************************************************************************************************
 
-// Setup LoRa
-// Returns true if successful
-bool vanetInit(void) {
+/*
+  Setup LoRa, attaches the DIO0/DIO1 interrupts and starts continuous Rx
+  Returns true if successful
+*/
+bool Vanet::init(void) {
 
-  spiLoRa.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_NSS);
+  spi.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_NSS);
 
-  LoRa.setSPI(spiLoRa);
+  LoRa.setSPI(spi);
   LoRa.setPins(LORA_NSS, LORA_RST, LORA_DIO0);
-  LoRa.setSPIFrequency(LORA_SPI_FREQ);        // 1E6 for bextractboarding otherwise 8E6
-  
+  LoRa.setSPIFrequency(LORA_SPI_FREQ);        
+
   if (LoRa.begin(LORA_FREQ)) {
-    LoRa.setSpreadingFactor(LORA_SF); // 12
-    LoRa.setSignalBandwidth(LORA_BW); //125E3
-    LoRa.setCodingRate4(LORA_CR);     // 8
-    LoRa.setSyncWord(LORA_SYNC);      // 0x12 for private network
-    LoRa.setTxPower(LORA_TXPOWER, PA_OUTPUT_PA_BOOST_PIN);    // PA_BOOST output on the RA-02
+    LoRa.setSpreadingFactor(LORA_SF);                         
+    LoRa.setSignalBandwidth(LORA_BW);                         
+    LoRa.setCodingRate4(LORA_CR);                             
+    LoRa.setSyncWord(LORA_SYNC);                              
+    LoRa.setTxPower(LORA_TXPOWER, PA_OUTPUT_PA_BOOST_PIN);    
     // LoRa.setPreambleLength(LORA_PREAMBLE);
     LoRa.enableCrc();
-    
+
     randomSeed(esp_random());
-    lastLora = millis() - random(0, BEACON_INTVL); // Prevents sychronous initail transmission
-    
+    lastTx = millis() - random(0, BEACON_INTVL); // Prevents sychronous initial transmission
+
+    // Radio event interrupts (LoRa.onReceive is not used, so DIO0 is free for our own ISR)
+    pinMode(LORA_DIO0, INPUT);
+    pinMode(LORA_DIO1, INPUT);
+    attachInterrupt(digitalPinToInterrupt(LORA_DIO0), loraDio0ISR, RISING);
+    attachInterrupt(digitalPinToInterrupt(LORA_DIO1), loraDio1ISR, RISING);
+
+    // Listen continuously, DIO0 rises when a packet arrives
+    rxFlag = false;
+    dio1Flag = false;
+    LoRa.receive();
+
     return true;
 
   } else {
-    error = true;
-    errMsg += "LoRa: radio not detected\n";
+    reportError("LoRa: radio not detected\n");
     return false;
   }
 }
 
-// Procedure for receiving LoRa packet
-// Returns the message, or -1 otherwise
-int vanetRx(Data &buffer) {
-  
+/*
+  Procedure for receiving LoRa packet into buffer
+  Only reads the radio when the DIO0 interrupt has set rxFlag, then returns to continuous Rx
+  Returns the message, or -1 otherwise
+*/
+int Vanet::rx(void) {
+
+  // Nothing received, so no need to talk to the radio
+  if (!rxFlag) {
+    return -1;
+  }
+  rxFlag = false;
+
+  int msg = readPacket();
+
+  // Reading a packet leaves the radio in standby, so listen again
+  LoRa.receive();
+
+  return msg;
+}
+
+/*
+  Reads and parses the packet waiting in the radio FIFO into buffer
+  Returns the message, or -1 if there was no valid packet
+*/
+int Vanet::readPacket(void) {
+
   if (LoRa.parsePacket()) {
-    
+
+    resetRxFlags();   // fresh flags for each packet
+
     byte dest = LoRa.read();
     byte src = LoRa.read();
 
-    handleRx(dest, src, myself.id);
+    handleRx(dest, src);
 
     if (!extract) { // Drop the packet before futher processing
       return -1;
-    } 
+    }
+    buffer.dest = dest;
+    buffer.id = src;
     buffer.fleetId = LoRa.read();
     buffer.message = LoRa.read();
-    
-    byte incomingLen = LoRa.read();
-    String incoming = "";
+
+    uint8_t incomingLen = LoRa.read();
+    char incoming[MSG_SIZE];
+    uint8_t len = 0;
     while (LoRa.available()) {
-      incoming += String((char)LoRa.read());
+      char c = (char)LoRa.read();
+      if (len < MSG_SIZE - 1) {   // keep room for the terminator, drain any excess
+        incoming[len++] = c;
+      }
     }
-    if (incomingLen != incoming.length()) {   
-      return -1;  // Error in payload length not matching                           
+    incoming[len] = '\0';
+    if (incomingLen != len) {
+      return -1;  // Error in payload length not matching
     }
 
     if (pass) {
-      buffer.payload = incoming; // Save further processing if teh packet must be passed.
+      strlcpy(buffer.payload, incoming, sizeof(buffer.payload)); // Stop further processing if the packet must be passed.
       return -1;
     }
-    int got = sscanf(incoming.c_str(), // Parse incoming payload
-    "%d,"                   // destination ID
-    "%d,"                   // source ID
+
+    // sscanf %d needs int, so status and tasks are parsed into ints then narrowed
+    int status, tasks;
+    int got = sscanf(incoming, // Parse incoming payload
     "%" SCNu32 ","          // date (DDMMYY)
     "%" SCNu32 ","          // time (HHMMSSCC)
     "%f,"                   // lat (deg)
@@ -151,100 +211,49 @@ int vanetRx(Data &buffer) {
     "%f,"                   // speed (kmph)
     "%f,"                   // heading/course (deg bearing)
     "%d,"                   // status
-    "%d,"                   // pending deliveries
-    "%f,",                   // battery percentage
-    &buffer.dest,
-    &buffer.id,
+    "%d,"                   // number of pending tasks
+    "%f",                   // battery percentage
     &buffer.date,
     &buffer.time,
     &buffer.lat, &buffer.lon, &buffer.alt,
     &buffer.speed, &buffer.course,
-    &buffer.status,
-    &buffer.tasks,
+    &status,
+    &tasks,
     &buffer.battery);
-    if (got == 13) {
+    if (got != 10) {
       return -1; // Not all fields of the payload were received.
     }
+    buffer.status = (uint8_t)status;
+    buffer.tasks = (uint8_t)tasks;
 
     buffer.rssi = LoRa.packetRssi();
     buffer.snr =  LoRa.packetSnr();
     buffer.freqErr = LoRa.packetFrequencyError();
 
-    updateCluster(buffer);
-    return (int)buffer.message;  
+    if (add || update) {
+      cluster.updatePeer(buffer);
+    }
+    return (int)buffer.message;
   } else {
     return -1;
   }
-  resetRxFlags(); 
 }
 
-// Checks the ID
-int analyseId(byte id, byte myId) {
-  if ((id == myId) || (id == 0)) {
-    return 1;
-  } else {
-    for (int i = 0; i < MAX_PEERS; i++) {
-      Data peer = cluster[i];
-      if (peer.id == id) {
-        return 2;
-      }
-    }
-  }
-  return 0;
-}
-
-// Updates the peer information within a cluster
-void updateCluster(Data buffer) {
-  
-  int j = peers + 1;
-  for (int i = 0; i < MAX_PEERS; i++) {
-    Data peer = cluster[i];
-    if (peer.id == buffer.id) {
-      j = i;
-    }
-  }
-  if (j = peers + 1) {
-    peers++;
-  }
-  if (j = MAX_PEERS + 1) {
-    return;
-  }
-  
- if (add || update) {
-    Data peer = cluster[j];
-    peer.id = buffer.id;
-    peer.fleetId = buffer.fleetId;
-    peer.lat = buffer.lat;
-    peer.lon = buffer.lat;
-    peer.alt = buffer.lat;
-    peer.speed = buffer.lat;
-    peer.course = buffer.lat;
-    peer.tasks = buffer.lat;
-    peer.status = buffer.lat;
-    peer.message = buffer.lat;
-    peer.battery = buffer.lat;
-    peer.date = buffer.lat;
-    peer.time = buffer.lat;
-    peer.rssi = buffer.lat;
-    peer.snr = buffer.lat;
-    peer.freqErr = buffer.lat;
-    // peer.distance = calcDistance(peer, buffer);
-  }
-}
-
-// Procedure for transmitting LoRa packet
-// Returns true if the packet was sent
-void vanetTx(byte dest) {
+/*
+  Procedure for transmitting LoRa packet, then returns to continuous Rx
+  node: the node information to send (pass a copy of myself taken under myselfMutex)
+*/
+void Vanet::tx(byte destId, const Data &node) {
   if (!LoRa.beginPacket()) {
     return; // radio busy
   } else {
-    LoRa.write(dest);              // add destination address
-    LoRa.write(myself.id);               // add sender address
-    LoRa.write(myself.fleetId);             // add fleet ID
-    LoRa.write(myself.message);             // add message
+    LoRa.write(destId);            // add destination address
+    LoRa.write(node.id);           // add sender address
+    LoRa.write(node.fleetId);      // add fleet ID
+    LoRa.write(node.message);      // add message
 
-    // Create payload
-    char payload[128];
+    
+    char payload[128];      // Create payload
     int n = snprintf(payload, sizeof(payload),
     "%06" PRIu32 ","        // date (DDMMYY)
     "%08" PRIu32 ","        // time (HHMMSSCC)
@@ -254,59 +263,47 @@ void vanetTx(byte dest) {
     "%.1f,"                 // speed (kmph)
     "%.1f,"                 // heading/course (deg bearing)
     "%d,"                   // status
-    "%d,"                   // pending drop offs
-    "%.2f,",                // battery percentage
-    myself.date,
-    myself.time,
-    myself.lat, myself.lon, myself.alt,
-    myself.speed, myself.course,
-    myself.status,
-    myself.tasks,
-    myself.battery);
-    size_t len = (n < (int)sizeof(payload)) ? n : sizeof(payload) - 1;   // length actually stored
+    "%d,"                   // number of pending tasks
+    "%.2f",                 // battery percentage
+    node.date,
+    node.time,
+    node.lat, node.lon, node.alt,
+    node.speed, node.course,
+    node.status,
+    node.tasks,
+    node.battery);
+    size_t len = (n < (int)sizeof(payload)) ? n : sizeof(payload) - 1;   // length stored
 
     LoRa.write((uint8_t)len);                     // add payload length
     LoRa.write((const uint8_t *)payload, len);    // add payload
     LoRa.endPacket();                             // waits until the packet is sent (~30-100 ms at SF7)
-
-
-  }
-}
-
-// Calculates the 3D straight line distance (m) between two GPS positions
-// lat/lon in degrees, alt in metres above the ellipsoid
-// Converts both positions to Earth-Centred, Earth-Fixed (ECEF) coordinates on the WGS84 ellipsoid
-float calcDistance(Data node1, Data node2) {
-
-  double x[2], y[2], z[2];
-  double lat[2] = {node1.lat * DEG_TO_RAD, node2.lat * DEG_TO_RAD};
-  double lon[2] = {node1.lon * DEG_TO_RAD, node2.lon * DEG_TO_RAD};
-  double alt[2] = {node1.alt, node2.alt};
-
-  for (int i = 0; i < 2; i++) {
-    double sinLat = sin(lat[i]);
-    double cosLat = cos(lat[i]);
-    double n = WGS84_A / sqrt(1.0 - WGS84_E2 * sinLat * sinLat);   // prime vertical radius of curvature
-
-    x[i] = (n + alt[i]) * cosLat * cos(lon[i]);
-    y[i] = (n + alt[i]) * cosLat * sin(lon[i]);
-    z[i] = (n * (1.0 - WGS84_E2) + alt[i]) * sinLat;
   }
 
-  double dx = x[1] - x[0];
-  double dy = y[1] - y[0];
-  double dz = z[1] - z[0];
-
-  double result = sqrt(dx * dx + dy * dy + dz * dz) / 1000.0;
-
-  return (float)result;
+  // Transmitting leaves the radio in standby, so listen again
+  LoRa.receive();
 }
 
-void handleRx(byte destId, byte srcId, byte myId) {
-  
-  int d = analyseId(destId, myId);
-  int s = analyseId(srcId, myId);
-  
+/*
+  Checks the ID against myself and the cluster
+  Returns 1 if it is me or broadcast, 2 if it is a peer, 0 otherwise
+*/
+uint8_t Vanet::analyseId(byte id) {
+  if ((id == myself.id) || (id == 0)) {
+    return 1;
+  } else if (cluster.find(id) >= 0) {
+    return 2;
+  }
+  return 0;
+}
+
+/*
+  Sets the Rx packet handling flags from the destination and source IDs
+*/
+void Vanet::handleRx(byte destId, byte srcId) {
+
+  uint8_t d = analyseId(destId);
+  uint8_t s = analyseId(srcId);
+
   switch (d) {
     case 0:
       if (s != 0) {
@@ -327,18 +324,15 @@ void handleRx(byte destId, byte srcId, byte myId) {
 
   if (s == 2) {
     update = true;
-  } 
+  }
 }
 
-// Resets all the flags
-void resetRxFlags(void) {
+/*
+  Resets all the flags
+*/
+void Vanet::resetRxFlags(void) {
   extract = true;
   pass = false;
   update = false;
   add = false;
-}
-
-// Counts the number of cluster peers
-int countPeers(void) {
-  return peers;
 }

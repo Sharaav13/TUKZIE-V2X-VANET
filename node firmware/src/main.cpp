@@ -4,7 +4,7 @@
 //*************************************************************************************************************************************************
 /*
   Version:  0
-  Date:     30/09/2026
+  Date:     09/10/2026
   Authors:  Sharaav Dhebideen
 */
 //*************************************************************************************************************************************************
@@ -12,10 +12,10 @@
   DESCRIPTION:
   1. Each TVV node has an uniquie ID, stored in teh configuration data on the inserted SD card.
   2. The node retrieves and interprets GPS and IMU information itself.
-  3. Other information is exchanged with it via the onboard Multi Network System (MNS) and Heads Up Display (HUD) in Tukzie.
+  3. Other information is exchanged with it via the onboard TUKZIE dashboard.
   4. Nodes communicate using LoRa and implement a MAC and Routing protocols.
   5. The TVV mobile app connects via Bluetooth to a node to display messages and network topology of all nodes.
-  6. MNS port can provides serial meassages for debugging.
+  6. Dashboard port can provide serial messages for debugging.
 */
 //*************************************************************************************************************************************************
 // LIBRARIES
@@ -23,10 +23,8 @@
 
 #include <system.h>         // External libraries, macros, Data struct & shared global variables
 #include <display.h>        // OLED display
-#include <sdcard.h>         // SD Card
-#include <gps.h>            // GPS & PPS
-#include <imu.h>            // IMU
-#include <mns.h>            // MNS UART
+#include <storage.h>        // SD Card
+#include <sensing.h>        // GPS & PPS, IMU
 #include <dashboard.h>      // TUKZIE dashboard
 #include <vanet.h>          // LoRa
 #include <debug.h>          // Peripheral debugging
@@ -36,25 +34,106 @@
 //*************************************************************************************************************************************************
 
 // Initialisation results (true = successful)
-bool mnsReady = false;
+bool dashReady = false;
 bool oledReady = false;
 bool rgbReady = false;
 bool sdReady = false;
 bool gpsReady = false;
 bool imuReady = false;
 bool vanetReady = false;
-bool dashReady = false;
+
+// Tasks
+TaskHandle_t sensingTask = NULL;    // core 0
+TaskHandle_t networkTask = NULL;    // core 1
+
+// Protects myself, which is written on core 0 and read on core 1
+SemaphoreHandle_t myselfMutex = NULL;
 
 //*************************************************************************************************************************************************
 // FUNCTIONS
 //*************************************************************************************************************************************************
 
-// Creates an init status message and flags an error if the init failed
-String initStatus(String name, bool ready) {
+/*
+  Creates an init status message and flags an error if the init failed
+*/
+String initStatus(const char *name, bool ready) {
   if (!ready) {
     error = true;
   }
-  return name + (ready ? " init pass.\n" : " init failed.\n");
+  return String(name) + (ready ? " init pass.\n" : " init failed.\n");
+}
+
+/*
+  Returns a copy of myself taken under myselfMutex
+  Used on core 1 so myself is never read while core 0 is updating it
+*/
+Data copyMyself(void) {
+  Data copy;
+  xSemaphoreTake(myselfMutex, portMAX_DELAY);
+  copy = myself;
+  xSemaphoreGive(myselfMutex);
+  return copy;
+}
+
+//*************************************************************************************************************************************************
+// TASKS
+//*************************************************************************************************************************************************
+
+/*
+  Core 0: collects and interprets GPS and IMU data, receives dashboard packets and stores them in myself
+*/
+void sensingLoop(void *param) {
+  for (;;) {
+
+    // Interpret IMU data (Kalman filter predict step at 100 Hz, does not touch myself)
+    // Skipped if the IMU failed to start or calibrate: the filter then only receives GPS corrections, so it follows the GPS speed
+    if (imuReady) {
+      speedFilter.update();
+    }
+
+    // Collect, interpret and store into myself
+    xSemaphoreTake(myselfMutex, portMAX_DELAY);
+    gps.get();                              // GPS data, also runs the Kalman filter correct step
+    myself.speed = speedFilter.getSpeed();  // fused GPS + IMU speed (km/h)
+    if (imuReady) {
+      senseTerrain();                       // road awareness from the IMU
+    }
+    dash.rx();                              // status, tasks, battery and message from the dashboard
+    xSemaphoreGive(myselfMutex);
+
+    vTaskDelay(1);                  // yield (1 tick = 1 ms) so the idle task can feed the watchdog
+  }
+}
+
+/*
+  Core 1: handles VANET Rx and Tx and logs data to the SD Card
+*/
+void networkLoop(void *param) {
+  for (;;) {
+
+    if (vanetReady) {
+
+      // Rx, logging each packet received
+      if ((vanet.rx() >= 0) && storage.ok) {
+        storage.write("RX," + String(vanet.buffer.id) + "," + vanet.buffer.toStr() + "\n", LOG_FILE);
+      }
+
+      // Tx, broadcasting myself
+      if (millis() - vanet.lastTx >= BEACON_INTVL) {
+        vanet.tx(0, copyMyself());
+        vanet.lastTx = millis();
+      }
+    }
+
+    // Log myself
+    if (storage.ok && (millis() - storage.lastWrite >= LOG_INTVL)) {
+      Data me = copyMyself();
+      storage.write("ME," + String(me.id) + "," + me.toStr() + "\n", LOG_FILE);
+      storage.lastWrite = millis();
+    }
+
+    vTaskDelay(1);                  // yield (1 tick = 1 ms) so the idle task can feed the watchdog
+  }
 }
 
 //*************************************************************************************************************************************************
@@ -66,66 +145,77 @@ void setup() {
   // Serial debugging initialised
   Serial.begin(SERIAL_BAUD);
 
-  // Initialise Tukzie interfaces
-  mnsReady = mnsInit();
+  // Protects error and errMsg once both cores are running (checked before the tasks start)
+  errMutex = xSemaphoreCreateMutex();
+
+  // Initialise TUKZIE dashboard
+  dashReady = dash.init();
 
   // Initialise OLED
-  oledReady = oledInit();
+  oledReady = oled.init();
 
-  disp("TUKZIE V2X", 2, true, false);
+  oled.disp("TUKZIE V2X", 2, true, false);
   delay(2000);
-  refreshDisp();
-  disp("Booting...", 1, true, false);
+  oled.refresh();
+  oled.disp("Booting...", 1, true, false);
   delay(2000);
-  refreshDisp();
+  oled.refresh();
 
   // Show existing init messages
-  disp(initStatus("MNS", mnsReady), 1, false, false);
+  oled.disp(initStatus("Dashboard", dashReady), 1, false, false);
   delay(1000);
-  disp(initStatus("OLED", oledReady), 1, false, true);
+  oled.disp(initStatus("OLED", oledReady), 1, false, true);
   delay(1000);
 
   // Initialise other peripherals
-  rgbReady = rgbInit();
-  disp(initStatus("RGB", rgbReady), 1, false, true);
+  rgbReady = lights.init();
+  oled.disp(initStatus("RGB", rgbReady), 1, false, true);
   delay(1000);
-  sdReady = sdInit();
-  disp(initStatus("SD", sdReady), 1, false, true);
+  sdReady = storage.init();
+  oled.disp(initStatus("SD", sdReady), 1, false, true);
   delay(1000);
-  gpsReady = gpsInit();
-  disp(initStatus("GPS", gpsReady), 1, false, true);
+  gpsReady = gps.init();
+  oled.disp(initStatus("GPS", gpsReady), 1, false, true);
   delay(1000);
-  imuReady = imuInit();
-  disp(initStatus("IMU", imuReady), 1, false, true);
+  imuReady = imu.init();
+  oled.disp(initStatus("IMU", imuReady), 1, false, true);
   delay(1000);
-  vanetReady = vanetInit();
-  disp(initStatus("LoRa", vanetReady), 1, false, true);
-  delay(1000);
-  dashReady = dashInit();
-  disp(initStatus("BLE", dashReady), 1, false, true);
+  vanetReady = vanet.init();
+  oled.disp(initStatus("LoRa", vanetReady), 1, false, true);
   delay(3000);
 
   // Start configurating node
-  refreshDisp();
-  disp(configNode(), 1, false, false);
+  oled.refresh();
+  oled.disp(storage.configNode(), 1, false, false);
   delay(3000);
 
   // Add necessary setup error message
   if (error) {
-    errMsg += "Setup: errors occurred during boot\n";
+    reportError("Setup: errors occurred during boot\n");
   }
 
   // Indicate setting up finished
-  refreshDisp();
-  disp("Finished boot.", 1, true, false);
+  oled.refresh();
+  oled.disp("Finished boot.", 1, true, false);
   delay(3000);
 
   if (error) {
-    disp(errMsg, 1, false, false);
+    oled.disp(errMsg, 1, false, false);
     delay(3000);
   }
 
-  refreshDisp();
+  oled.refresh();
+
+  // Start a task on each core (only if both mutexes exist, otherwise shared data would be unprotected)
+  myselfMutex = xSemaphoreCreateMutex();
+  if ((myselfMutex == NULL) || (errMutex == NULL)) {
+    reportError("Setup: mutex could not be created\n");
+    oled.disp(errMsg, 1, false, false);
+    return;
+  }
+
+  xTaskCreatePinnedToCore(sensingLoop, "sensing", TASK_STACK, NULL, TASK_PRIORITY, &sensingTask, SENSING_CORE);
+  xTaskCreatePinnedToCore(networkLoop, "network", TASK_STACK, NULL, TASK_PRIORITY, &networkTask, NETWORK_CORE);
 }
 
 //*************************************************************************************************************************************************
@@ -137,21 +227,17 @@ void loop() {
   // Modify for debugging operation => wantthe errors to show without halting function
   // Show error in setup or operation
   //if (error) {
-    //disp(errMsg, 1, false, false);
+    //oled.disp(errMsg, 1, false, false);
     //while(true) {delay(1000);}
   //}
 
-  //debug(IMU);
-  //debug(GPS);
-  //debug(SD_CARD);
-  //debug(MNS);
-  //debug(LORA);
+  // Peripheral debugging: stop the tasks being created at the end of setup, then uncomment one debug call
+  //debug(DBG_IMU);
+  //debug(DBG_GPS);
+  //debug(DBG_SD_CARD);
+  //debug(DBG_DASH);
+  //debug(DBG_LORA);
 
-  // Collect information
-  gpsGet();
-  roadSense();
-
-  // Intepret information
-
-  // Transfer information
+  // All work runs in sensingLoop (core 0) and networkLoop (core 1)
+  vTaskDelete(NULL);    // removes the Arduino loop task so it does not compete with networkLoop on core 1
 }

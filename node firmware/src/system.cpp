@@ -20,14 +20,10 @@ VANET network:
 Dashboard:
     TX = | timestamp | location | speed | course | message |
     RX = | status | deliveries | battery | message |
-
-MNS:
-    TX = | timestamp | location | speed | course | message |
 */
 
 #include "system.h"
-#include "gps.h"
-#include "imu.h"
+#include "sensing.h"
 #include "dashboard.h"
 #include "vanet.h"
 
@@ -37,17 +33,17 @@ MNS:
 
 // Node congifuration
 Data myself;
-int config[CFG_FIELDS];
+Data buffer;
+
+uint8_t config[CFG_FIELDS];  // {node ID, use, fleet number}
 
 // System operation
 bool error = false;
 String errMsg = "Errors in:\n";
-
-// RGB LED
-Adafruit_NeoPixel rgb_led = Adafruit_NeoPixel(NUM_RGB_LEDS, RGB_LED_PIN, NEO_GRB + NEO_KHZ800);
+SemaphoreHandle_t errMutex = NULL;  // protects error and errMsg, which both cores write
 
 // Coded messages (array index is the message code)
-const char *codedMessages[] = {
+const char *const codedMessages[] = {
     "",                                                             // 0
     "Request delivery assistance",                                  // 1
     "Assistance has been organised",                                // 2
@@ -62,7 +58,7 @@ const char *codedMessages[] = {
 };
 
 // Coded status (array index is the status code)
-const char *codedStatus[] = {
+const char *const codedStatus[] = {
     "Stationary",   // 0
     "Charging",     // 1
     "Delivering",   // 2
@@ -73,8 +69,27 @@ const char *codedStatus[] = {
 // FUNCTIONS
 //*************************************************************************************************************************************************
 
-// Converts a node into a single CSV string
-String node2Str(Data node) {
+/*
+  Flags an error and appends its message to errMsg
+  Safe to call from both cores once errMutex has been created at the start of setup
+*/
+void reportError(const char *msg) {
+    if (errMutex != NULL) {
+        xSemaphoreTake(errMutex, portMAX_DELAY);
+    }
+
+    error = true;
+    errMsg += msg;
+
+    if (errMutex != NULL) {
+        xSemaphoreGive(errMutex);
+    }
+}
+
+/*
+  Converts the node into a single CSV string
+*/
+String Data::toStr(void) {
     char result[128];
     snprintf(result, sizeof(result),
     "%06" PRIu32 ","        // date (DDMMYY)
@@ -88,54 +103,44 @@ String node2Str(Data node) {
     "%d,"                   // pending deliveries
     "%.2f,"                 // battery percentage
     "%d",                   // message code
-    node.date,
-    node.time,
-    node.lat, node.lon, node.alt,
-    node.speed, node.course,
-    node.status,
-    node.tasks,
-    node.battery,
-    node.message);
+    date,
+    time,
+    lat, lon, alt,
+    speed, course,
+    status,
+    tasks,
+    battery,
+    message);
     return String(result);
 }
 
-// Setup RGB LED
-// Returns true (the NeoPixel library does not report failures)
-bool rgbInit(void) {
-    rgb_led.begin();
-    rgb_led.setPixelColor(0, rgb_led.Color(0, 0, 0)); // Initialize all pixels to 'off'
-    rgb_led.show(); // Initialize all pixels to 'off'
-    return true;
-}
+/*
+  Calculates the 3D straight line distance (km) to another node
+  lat/lon in degrees, alt in metres above the ellipsoid
+  Converts both positions to Earth-Centred, Earth-Fixed (ECEF) coordinates on the WGS84 ellipsoid
+*/
+float Data::distanceTo(const Data &other) {
 
-void rgbToggle (int colour) {
-    switch (colour) {
-        default:
-            rgb_led.setPixelColor(0, rgb_led.Color(0, 0, 0)); // Off
-            break;
+    double x[2], y[2], z[2];
+    double latRad[2] = {lat * DEG_TO_RAD, other.lat * DEG_TO_RAD};
+    double lonRad[2] = {lon * DEG_TO_RAD, other.lon * DEG_TO_RAD};
+    double altM[2] = {alt, other.alt};
 
-        case RED:
-            rgb_led.setPixelColor(0, rgb_led.Color(255, 0, 0));
-            break;
+    for (int i = 0; i < 2; i++) {
+        double sinLat = sin(latRad[i]);
+        double cosLat = cos(latRad[i]);
+        double n = WGS84_A / sqrt(1.0 - WGS84_E2 * sinLat * sinLat);   // prime vertical radius of curvature
 
-        case ORANGE:
-            rgb_led.setPixelColor(0, rgb_led.Color(255, 128, 0));
-            break;
-
-        case YELLOW:
-            rgb_led.setPixelColor(0, rgb_led.Color(255, 255, 0));
-            break;
-
-        case GREEN:
-            rgb_led.setPixelColor(0, rgb_led.Color(0, 255, 0));
-            break;
-
-        case BLUE:
-            rgb_led.setPixelColor(0, rgb_led.Color(0, 0, 255));
-            break;
-
-        case PURPLE:
-            rgb_led.setPixelColor(0, rgb_led.Color(128, 0, 128));
-            break;
+        x[i] = (n + altM[i]) * cosLat * cos(lonRad[i]);
+        y[i] = (n + altM[i]) * cosLat * sin(lonRad[i]);
+        z[i] = (n * (1.0 - WGS84_E2) + altM[i]) * sinLat;
     }
+
+    double dx = x[1] - x[0];
+    double dy = y[1] - y[0];
+    double dz = z[1] - z[0];
+
+    double result = sqrt(dx * dx + dy * dy + dz * dz) / 1000.0;
+
+    return (float)result;
 }
