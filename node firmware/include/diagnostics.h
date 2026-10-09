@@ -1,10 +1,10 @@
 //*************************************************************************************************************************************************
 // TUKZIE V2X VANET (TVV)
-// NODE FIRMWARE - DEBUG
+// NODE FIRMWARE - DIAGNOSTICS
 //*************************************************************************************************************************************************
 
-#ifndef TVV_DEBUG_H
-#define TVV_DEBUG_H
+#ifndef TVV_DIAGNOSTICS_H
+#define TVV_DIAGNOSTICS_H
 
 #include "system.h"
 
@@ -12,73 +12,95 @@
 // FUNCTIONS
 //*************************************************************************************************************************************************
 
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+// Debug Selection
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+
 /*
   Runs the debug routine of the selected peripheral
-  peripheral: DBG_SD_CARD, DBG_GPS, DBG_PPS_CLOCK, DBG_IMU, DBG_DASH, DBG_LORA_RX, DBG_LORA_TX or DBG_LORA
+  peripheral: DBG_OLED, DBG_SD_CARD, DBG_GPS, DBG_IMU, DBG_HOST, DBG_LORA_RX, DBG_LORA_TX or DBG_LORA
 */
 void debug(uint8_t peripheral);
 
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+// OLED
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+
 /*
-  Writes and reads to the SD card
+  Shows the same test message on the OLED and the Serial Monitor every OLED_TEST_INTVL
+*/
+void oledDebug(void);
+
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+// SD Card
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+
+/*
+  Writes a test line to DEBUG_FILE (shown on the OLED) and reads the file back to Serial
 */
 void sdDebug(void);
 
-/*
-  Calculates the error in clock synchronisation with PPS
-*/
-void clockDiff(void);
-
-/*
-  Converts currently stored GPS data into a single string
-  Used for GPS module testing
-*/
-size_t gpsStr(char *out, size_t cap);
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+// GPS
+// ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
   Displays all GPS data periodically
 */
 void gpsDebug(void);
 
-/*
-  Converts currently stored IMU data into a single string
-  Used for IMU module testing
-*/
-size_t imuStr(char *out, size_t cap);
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+// IMU
+// ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
   Displays all IMU data periodically
 */
 void imuDebug(void);
 
-/*
-  Debugs if dashboard Tx and Rx ports are working
-  Tx and Rx are wired together
-*/
-void dashDebug(void);
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+// Host
+// ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
-  Procedure for receiving LoRa packet
+  Host UART loopback test (Tx wired to Rx)
 */
-String loraRx(void);
+void hostDebug(void);
+
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+// LoRa
+// ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
-  Procedure for transmitting LoRa packet
-*/
-void loraTx(String payload);
-
-/*
-  Converts LoRa Rx information into a single string
-*/
-size_t loraRxStr(char *out, size_t cap, String pkt);
-
-/*
-  Converts LoRa Tx information into a single string
-*/
-size_t loraTxStr(char *out, size_t cap, String pkt);
-
-/*
-  Shows LoRa Tx and Rx
+  LoRa test: Tx on the OLED, Rx on Serial
+  select: 0 => Rx, 1 => Tx, 2 => both
+  Tx packets carry the GPS date, time and a count
 */
 void loraDebug(uint8_t select);
 
-#endif // TVV_DEBUG_H
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+// Log Formatting
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+
+/*
+  Formats a sensing (GPS and IMU) log line for SENSE_FILE
+  node: a copy of myself (IMU values come from imu)
+  Line: ms,date,time,lat,lon,alt,speed,course,sats,hdop,ax,ay,az,gx,gy,gz
+*/
+String formatSensing(const Data &node);
+
+/*
+  Formats a VANET log line for LOG_FILE
+  event: "RX" or "TX"
+  Line: ms,event,src,fleetId,<node>,rssi,snr
+  <node> is Data::toStr(): date,time,lat,lon,alt,speed,course,status,tasks,battery,message
+*/
+String formatVanet(const char *event, const Data &node);
+
+/*
+  Formats all of a node's data for NODE_FILE or DEBUG_FILE
+  Line: ms,id,fleetId,<node>
+*/
+String formatMyself(const Data &node);
+
+#endif // TVV_DIAGNOSTICS_H

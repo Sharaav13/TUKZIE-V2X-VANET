@@ -1,10 +1,10 @@
 //*************************************************************************************************************************************************
 // TUKZIE V2X VANET (TVV)
-// NODE FIRMWARE - DASHBOARD (UART)
+// NODE FIRMWARE - HOST (UART)
 //*************************************************************************************************************************************************
 
-#ifndef TVV_DASHBOARD_H
-#define TVV_DASHBOARD_H
+#ifndef TVV_HOST_H
+#define TVV_HOST_H
 
 #include "system.h"
 
@@ -12,45 +12,49 @@
 // STRUCTURES
 //*************************************************************************************************************************************************
 
-// TUKZIE dashboard link
-struct Dashboard {
+// Host link (UART): the system the node is attached to, e.g. the TUKZIE dashboard
+struct Host {
 
   HardwareSerial uart{2};       // UART2
 
-  // Status
-  bool ok = false;
-
   // Timestamps (ms)
-  uint32_t lastTx = 0;          // previous dashboard transmission
+  uint32_t lastTx = 0;          // previous host transmission
+  uint32_t lastRx = 0;          // previous valid host packet (0 = none yet)
 
   // Rx
   char rxBuffer[MSG_SIZE];      // partial packet carried over between rx calls
   uint8_t rxLen = 0;            // number of characters in rxBuffer
+  bool inPacket = false;        // a HOST_START has been seen, collecting until '\n'
 
   /*
-    Setup dashboard communication and serial debugging messages
-    Returns true if the dashboard UART driver was installed
+    Setup the host UART
+    Returns true if the UART driver was installed
   */
   bool init(void);
 
   /*
-    Transmits myself and a table of nodes to the TUKZIE dashboard
-    One node per line
+    Transmits myself and a table of nodes to the host, one packet per node: "$<node>\n"
+    me: a copy of myself
   */
-  void tx(Data table[], uint8_t size);
+  void tx(const Data &me, Data table[], uint8_t size);
 
   /*
-    Receives and parses a packet from the TUKZIE dashboard
-    Packets are terminated by '\n'
+    Receives and parses a packet from the host into myself
+    Packet: "$status,tasks,battery\n" (anything before the '$' is ignored)
     Returns true when a complete packet has been parsed
   */
   bool rx(void);
+
+  /*
+    Returns true if a valid host packet arrived within HOST_TIMEOUT
+  */
+  bool present(void);
 };
 
 //*************************************************************************************************************************************************
 // INSTANCES
 //*************************************************************************************************************************************************
 
-extern Dashboard dash;
+extern Host host;
 
-#endif // TVV_DASHBOARD_H
+#endif // TVV_HOST_H

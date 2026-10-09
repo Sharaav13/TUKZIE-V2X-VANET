@@ -1,6 +1,6 @@
 //*************************************************************************************************************************************************
 // TUKZIE V2X VANET (TVV)
-// NODE FIRMWARE - SENSING (GPS & PPS, IMU)
+// NODE FIRMWARE - SENSING (GPS, IMU)
 //*************************************************************************************************************************************************
 
 #include "system.h"
@@ -15,49 +15,19 @@ IMU imu;
 SpeedFilter speedFilter;
 
 //*************************************************************************************************************************************************
-// GLOBAL VARIABLES
+// FUNCTIONS
 //*************************************************************************************************************************************************
 
-// PPS
-volatile uint32_t countPps =  0; // seconds
-volatile uint32_t gapMs  =    0;
-volatile uint32_t lastPps = 0;      // previous PPS pulse (set by ppsISR)
-
-// Road awareness
-bool vibration = false;
-bool accident = false;  // 1
-bool terrain = false;   // 2
-bool pothole = false;   // 3
-uint32_t vibrationStart;
-uint32_t vibrationDuration;
-uint8_t roadAwarenessNum = 0;
-
-//*************************************************************************************************************************************************
-// INTERRUPTS
-//*************************************************************************************************************************************************
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+// GPS
+// ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
-  Records a second indicated by PPS
-*/
-void IRAM_ATTR ppsISR() {
-  uint32_t now = millis();
-  gapMs  = now - lastPps;
-  lastPps = now;
-  countPps++;
-}
-
-//*************************************************************************************************************************************************
-// FUNCTIONS - GPS & PPS
-//*************************************************************************************************************************************************
-
-/*
-  Setup GPS and PPS
+  Setup GPS
   Returns true if the GPS UART driver was installed
 */
 bool GPS::init(void) {
   uart.begin(GPS_BAUD, SERIAL_8N1, GPS_RX, GPS_TX);
-  pinMode(PPS, INPUT);
-  attachInterrupt(digitalPinToInterrupt(PPS), ppsISR, RISING);
 
   if (!uart) {
     reportError("GPS: UART driver failed to install\n");
@@ -67,8 +37,7 @@ bool GPS::init(void) {
 }
 
 /*
-  Retreives GPS data and saves it to myself
-  Fix quality is saved to myself.sats and myself.hdop
+  Reads the GPS into myself (incl. sats and hdop)
   New GPS speeds correct the Kalman filter
 */
 void GPS::get(void) {
@@ -129,7 +98,6 @@ void GPS::get(void) {
 
   // Speed
   if (tinyGps.speed.isUpdated()) {
-    myself.speed  = tinyGps.speed.kmph();
     speedFilter.gpsUpdate(tinyGps.speed.mps());   // Kalman correct step
   }
 
@@ -166,7 +134,7 @@ float GPS::speedVariance(void) {
   float sigma = 0.25f;
 
   // Slightly more conservative at walking speed
-  if (lastSpeed < 2.0f) { // Evaluate for speeds upto 70 kmph
+  if (lastSpeed < 2.0f) {   // 2 m/s = 7.2 kmph
     sigma = 0.32f;
   }
 
@@ -178,12 +146,33 @@ float GPS::speedVariance(void) {
   return sigma * sigma;
 }
 
-//*************************************************************************************************************************************************
-// FUNCTIONS - IMU
-//*************************************************************************************************************************************************
+/*
+  GPS data in myself as text (for testing)
+*/
+size_t GPS::toStr(char *out, size_t cap) {
+
+  return snprintf(out, cap,
+        "%06" PRIu32 "  %08" PRIu32 " SAST\n"
+        "lat: %.7f deg\n"
+        "lon: %.7f deg\n"
+        "alt: %.1f m\n"
+        "speed: %.1f kmph\n"
+        "course: %.1f deg\n"
+        "sats: %d   hdop: %.1f",
+        myself.date, myself.time,
+        myself.lat,
+        myself.lon,
+        myself.alt,
+        myself.speed, myself.course,
+        myself.sats, myself.hdop);
+}
+
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+// IMU
+// ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
-  Setup IMU
+  Setup and calibrate the IMU
   Returns true if successful
 */
 bool IMU::init(void) {
@@ -310,8 +299,8 @@ float IMU::get(uint8_t reading, uint8_t axis, uint8_t calibrated, uint8_t scaled
 }
 
 /*
-  Reads all IMU values in one transaction into acc (g, gravity included) and gyro (dps, gyroBias removed)
-  Returns false if the I2C read failed
+  Reads acc (g, with gravity) and gyro (dps, bias removed) in one I2C read
+  Returns false if the read failed
 */
 bool IMU::getAll(void) {
 
@@ -337,65 +326,27 @@ bool IMU::getAll(void) {
   return true;
 }
 
-//*************************************************************************************************************************************************
-// FUNCTIONS - ROAD AWARENESS
-//*************************************************************************************************************************************************
-
 /*
-  Define threshold for vibrartions
-  Checks terrain
-  Fix according to speed !!
+  IMU readings as text (for testing)
 */
-void senseTerrain(void) {
+size_t IMU::toStr(char *out, size_t cap) {
 
-  pothole = false;
-  terrain = false;
-
-  // Calibrated and scaled, so gravity is removed (~0 g at rest)
-  float acc_x = abs(imu.get(ACC, X_AXIS, 1, 1));
-  float acc_y = abs(imu.get(ACC, Y_AXIS, 1, 1));
-  float acc_z = imu.get(ACC, Z_AXIS, 1, 1);
-
-  // Sense vibrations
-  if ((acc_z >= VIBR_G_THRESHOLD) && (vibration == false)) {
-    vibrationStart = millis();
-    vibration = true;
-  }
-
-  // Determine rough/bumpy terrain or potholes
-  if (vibration) {
-    vibrationDuration = millis() - vibrationStart;
-    if (vibrationDuration >= VIBR_INTERVAL_THRESHOLD) {
-      terrain = true;
-      roadAwarenessNum = 2;
-      myself.message = 5;   // Rough terrain is present
-    } else if ((vibrationDuration < VIBR_INTERVAL_THRESHOLD) && (acc_z < VIBR_G_THRESHOLD)) {
-      pothole = true;
-      roadAwarenessNum = 3;
-      myself.message = 6;   // Potholes are present
-    }
-  }
-
-  // Checks if there was an accident or toppled over
-  if ((acc_x >= 1) || (acc_y >= 1) || (acc_z >= 1)) {
-    accident = true;
-    roadAwarenessNum = 1;
-    myself.message = 3;     // Met with accident
-  }
-
+  return snprintf(out, cap,
+        "A: %.2f %.2f %.2f\n"
+        "G: %.2f %.2f %.2f",
+        acc[X_AXIS], acc[Y_AXIS], acc[Z_AXIS],
+        gyro[X_AXIS], gyro[Y_AXIS], gyro[Z_AXIS]);
 }
 
-//*************************************************************************************************************************************************
-// FUNCTIONS - KALMAN FILTER
-//*************************************************************************************************************************************************
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+// KalmanFilter
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+
 /*
-  The Kalman filter alternates two steps:
-    PREDICT (predict, ~100 Hz from the IMU):  move the state forward using the measured acceleration.
-                                              Uncertainty P grows, because integrating acceleration drifts.
-    CORRECT (correct, ~1 Hz from the GPS):    compare the prediction with a measurement.
-                                              The Kalman gain K decides how far to move towards the measurement:
-                                              K is large when the prediction is uncertain (P big) and small when
-                                              the measurement is noisy (variance big). Uncertainty P then shrinks.
+  Kalman filter steps:
+    PREDICT (~100 Hz, IMU): integrate acceleration into speed, uncertainty P grows
+    CORRECT (~1 Hz, GPS):   move towards the measured speed by the Kalman gain K, P shrinks
+                            (K is large when P is big, small when the measurement is noisy)
 */
 
 /*
@@ -412,8 +363,7 @@ void KalmanFilter::reset(float initialSpeed) {
 }
 
 /*
-  PREDICT: integrates the forward acceleration (m/s^2) over dt (s) into speed
-  and grows the uncertainty, since a prediction is less certain than a measurement
+  PREDICT: integrates forward acceleration (m/s^2) over dt (s) into speed, uncertainty grows
 */
 void KalmanFilter::predict(float acceleration, float dt) {
 
@@ -445,9 +395,9 @@ void KalmanFilter::predict(float acceleration, float dt) {
 }
 
 /*
-  CORRECT: blends a measured speed (m/s) into the prediction using the Kalman gain
-  measurementVariance is how much the measurement is trusted (smaller = more trust)
-  allowHardReset re-anchors the filter to the measurement if the prediction drifted badly
+  CORRECT: blends a measured speed (m/s) in using the Kalman gain
+  measurementVariance: smaller = more trust
+  allowHardReset: jump to the measurement if the prediction drifted badly
 */
 void KalmanFilter::correct(float measuredSpeed, float measurementVariance, bool allowHardReset) {
 
@@ -506,9 +456,9 @@ void KalmanFilter::correct(float measuredSpeed, float measurementVariance, bool 
   P10 = cross;
 }
 
-//*************************************************************************************************************************************************
-// FUNCTIONS - SPEED FILTER (GPS + IMU FUSION)
-//*************************************************************************************************************************************************
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+// SpeedFilter
+// ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
   Initialises the speed fusion from the IMU calibration
@@ -516,10 +466,7 @@ void KalmanFilter::correct(float measuredSpeed, float measurementVariance, bool 
 */
 void SpeedFilter::init(void) {
 
-  // The gyro bias is already in imu.gyroBias (imu.getAll removes it from imu.gyro)
-
-  // Initial attitude from the gravity direction (the only acceleration while still)
-  // imu.accBias is the average acceleration during calibration, so it points along gravity
+  // Starting roll/pitch from gravity (imu.accBias, the average acceleration while still)
   float ax = imu.accBias[X_AXIS];
   float ay = imu.accBias[Y_AXIS];
   float az = imu.accBias[Z_AXIS];
@@ -549,7 +496,7 @@ void SpeedFilter::gpsUpdate(float gpsSpeed) {
   }
 
   if (!initialized) {
-    kalman.reset(gpsSpeed);    // first fix: start the filter from the GPS speed
+    kalman.reset(gpsSpeed);    // first fix: start from the GPS speed
     initialized = true;
   } else {
     kalman.correct(gpsSpeed, gps.speedVariance(), true);   // CORRECT step
@@ -563,12 +510,12 @@ void SpeedFilter::gpsUpdate(float gpsSpeed) {
 */
 void SpeedFilter::stationaryUpdate(float accMagnitude, float gyroMagnitude) {
 
-  // Both sensors must agree: GPS says slow, IMU says not rotating and only feeling gravity (1 g)
+  // GPS slow, and IMU not rotating and only feeling gravity (1 g)
   bool freshGpsSpeed = gps.fix && gps.tinyGps.speed.isValid() && (gps.tinyGps.speed.age() < GPS_MAX_AGE);
   bool gpsStill = freshGpsSpeed && (gps.lastSpeed < STOP_SPEED_MPS);
   bool imuStill = (gyroMagnitude < STILL_GYRO_DPS) && (fabsf(accMagnitude - 1.0f) < STILL_ACCEL_TOL_G);
 
-  // Must stay still for STILL_HOLD_MS before it counts, so brief pauses are ignored
+  // Must hold for STILL_HOLD_MS (ignores brief pauses)
   if (gpsStill && imuStill) {
     if (stationaryStart == 0) {
       stationaryStart = millis();
@@ -585,7 +532,6 @@ void SpeedFilter::stationaryUpdate(float accMagnitude, float gyroMagnitude) {
 /*
   Updates attitude and predicts speed from the IMU over dt (s)
   Mounting convention: +X = forward, +Y = left, +Z = up
-  Speed is scalar and does not depend on yaw, so turns cannot directly create a large speed increase
 */
 void SpeedFilter::imuUpdate(float dt) {
 
@@ -618,8 +564,7 @@ void SpeedFilter::imuUpdate(float dt) {
 
   stationaryUpdate(accMagnitude, gyroMagnitude);
 
-  // Slowly refine imu.gyroBias only while confidently stopped (any rotation reading must then be bias)
-  // imu.gyro is the reading minus the current bias, so it is exactly the remaining bias error
+  // While stopped, any rotation is gyro bias error: refine imu.gyroBias slowly
   if (stationary) {
     const float alpha = 0.0015f;
     imu.gyroBias[X_AXIS] += alpha * gx;
@@ -656,8 +601,7 @@ void SpeedFilter::imuUpdate(float dt) {
   float predictedRoll = roll + rollRate * dt;
   float predictedPitch = pitch + pitchRate * dt;
 
-  // Adaptive complementary filter: mostly gyro, nudged towards gravity
-  // The accelerometer is trusted less when it measures more than gravity (|acc| far from 1 g)
+  // Complementary filter: mostly gyro, nudged towards gravity (less when |acc| is far from 1 g)
   float gravityError = fabsf(accMagnitude - 1.0f);
   float accTrust = 1.0f - constrain(gravityError / 0.10f, 0.0f, 1.0f);
   float gyroWeight = 1.0f - (1.0f - ATTITUDE_GYRO_WEIGHT) * accTrust;
@@ -682,9 +626,7 @@ void SpeedFilter::imuUpdate(float dt) {
 
   // e. PREDICT step -------------------------------------------------------------------------------------------------------------------------
 
-  // Only predict when it is safe to:
-  //  - fast rotations generate large transient accelerations
-  //  - without a recent GPS correction, pure IMU integration drifts too far
+  // Skip during fast turns (transient accelerations) or without a recent GPS correction (drift)
   bool fastRotation = gyroMagnitude > TURN_SUPPRESS_DPS;
   bool gpsRecentlyCorrected = (lastGpsCorrection != 0) && (millis() - lastGpsCorrection < MAX_DEAD_RECKON_MS);
 
@@ -735,13 +677,13 @@ void SpeedFilter::update(void) {
 }
 
 /*
-  Returns the fused speed (km/h)
-  Falls back to raw GPS speed until the filter is initialised
+  Returns the fused speed in kmph (never negative)
+  Uses the GPS speed until the filter has started
 */
 float SpeedFilter::getSpeed(void) {
 
   if (initialized) {
-    return kalman.speed * 3.6f;    // m/s to km/h
+    return max(kalman.speed, 0.0f) * 3.6f;    // m/s to kmph, clamped at 0
   }
 
   if (gps.fix && gps.tinyGps.speed.isValid()) {

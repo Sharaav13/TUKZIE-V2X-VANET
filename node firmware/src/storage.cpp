@@ -16,6 +16,10 @@ Storage storage;
 // FUNCTIONS
 //*************************************************************************************************************************************************
 
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+// Storage
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+
 /*
   Setup SD Card module
   Returns true if successful
@@ -34,11 +38,17 @@ bool Storage::init(void) {
 }
 
 /*
-  Read configuration data from SD Card
+  Reads "id,fleetId" from CONFIG_FILE into myself (skipped without an SD Card)
+  Returns a summary, or an error message
 */
 String Storage::configNode(void) {
 
-  File f = SD.open(CFG_PATH);
+  // No SD Card (already reported by init), so no configuration
+  if (!ok) {
+    return "SD: no card, config skipped.\n";
+  }
+
+  File f = SD.open(CONFIG_FILE);
   if (!f) {
     reportError("SD: failed to open config file.\n");
     return "SD: failed to open config file.\n";
@@ -48,57 +58,26 @@ String Storage::configNode(void) {
   f.close();
   line.trim();                      // drops spaces and any trailing '\r'
 
-  for (int i = 0; i < CFG_FIELDS; i++) {
-    int comma = line.indexOf(',');
-
-    if (comma < 0) {                // last field, no comma after it
-      if (i != CFG_FIELDS - 1) {
-        reportError("SD: config parse failed.\n");
-        return "SD: config parse failed.\n";
-      }
-      config[i] = line.toInt();
-    } else {
-      config[i] = line.substring(0, comma).toInt();
-      line = line.substring(comma + 1);
-    }
+  // File format: "id,fleetId" e.g. "7,3"
+  int id, fleetId;                  // sscanf %d needs int, the Data fields are bytes
+  if (sscanf(line.c_str(), "%d,%d", &id, &fleetId) != 2) {
+    reportError("SD: config parse failed.\n");
+    return "SD: config parse failed.\n";
   }
 
-  myself.id = config[0];
-  myself.fleetId = config[1];
+  myself.id = id;
+  myself.fleetId = fleetId;
 
-  String configData = "Config success.\nNode ID: "  + (String)config[0] + "\nUse: ";
-  switch (config[1]) {
-    case 0:
-      configData = configData + "Tukzie Fleet " + (String)config[2];
-      break;
-
-    case 1:
-      configData = configData + "Fleet " + (String)config[2];
-      break;
-
-    case 2:
-      configData = configData + "Private";
-      break;
-  }
-
-  return configData;
+  return "Config success.\nNode ID: " + String(myself.id) + "\nFleet ID: " + String(myself.fleetId);
 }
 
 /*
-  Used for SD Card module testing and node debugging
-  Returns the content as a String
+  Returns a file's content (for testing), or an error message
 */
-String Storage::read(const char *readFile) {
+String Storage::read(const char *file) {
 
-  char path[SD_PATH_SIZE];
-  snprintf(path, sizeof(path), "/%s.txt", readFile);
-
-  File f = SD.open(path);
+  File f = SD.open(file);
   if (f) {
-
-    // Read number of lines
-    // size_t len = logFile.size();
-    // oled.disp((String)len, 1, false, false);
 
     // Read character by character
     String contents;
@@ -114,20 +93,20 @@ String Storage::read(const char *readFile) {
 }
 
 /*
-  Write/Log contents to SD Card
-  Used for node debugging and testing
+  Appends content to a file on the SD Card
+  file: LOG_FILE, NODE_FILE, SENSE_FILE or DEBUG_FILE
 */
-void Storage::write(const String &content, const char *logFile) {
+void Storage::write(const String &content, const char *file) {
 
-  char path[SD_PATH_SIZE];
-  snprintf(path, sizeof(path), "/%s.txt", logFile);
+  // No SD Card (also avoids repeated errors)
+  if (!ok) {
+    return;
+  }
 
-  File f = SD.open(path, FILE_APPEND);
-
+  File f = SD.open(file, FILE_APPEND);
   if (f) {
     f.print(content);
     f.close();
-    // oled.disp("Logged to SD", 1, false, false); // debugging
   } else {
     reportError("SD: failed to open log file\n");
   }

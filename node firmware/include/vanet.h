@@ -12,11 +12,55 @@
 // STRUCTURES
 //*************************************************************************************************************************************************
 
+/*
+  LoRa packet: 31 bytes of binary, always broadcast
+  Tx: pack() from a node | Rx: unpack() into a node
+
+  | src | fleet ID | message | date | time | lat | lon | alt | speed | course | status | tasks | battery |
+     1       1          1        4      4     4     4     4      2       2        1       1        2     bytes
+
+  Decimals are sent as whole numbers: lat/lon x 10^7, alt/speed/course x 10, battery x 100
+  packed: no gaps, so the bytes on air match this layout
+*/
+struct __attribute__((packed)) Packet {
+
+  // Header
+  uint8_t src;          // sender ID
+  uint8_t fleetId;
+  uint8_t message;      // message code
+
+  // Payload
+  uint32_t date;        // DDMMYY
+  uint32_t time;        // HHMMSSCC
+  int32_t lat;          // deg x 10^7
+  int32_t lon;          // deg x 10^7
+  int32_t alt;          // m x 10
+  uint16_t speed;       // kmph x 10
+  uint16_t course;      // deg x 10
+  uint8_t status;       // status code
+  uint8_t tasks;        // pending tasks
+  uint16_t battery;     // % x 100
+
+  /*
+    Tx: fills the packet from a node
+  */
+  void pack(const Data &node);
+
+  /*
+    Rx: copies the packet back into a node
+  */
+  void unpack(Data &node);
+};
+
 // Table of peers within the cluster
 struct Cluster {
 
-  Data peerTable[MAX_PEERS];    // peer table with defined maximum size 
+  Data peerTable[MAX_PEERS];       // peer table with defined maximum size
   uint8_t count = 0;               // number of actual peers stored
+
+  // Timestamps (ms)
+  uint32_t lastHeard[MAX_PEERS];   // when each peer's last packet arrived (local time)
+  uint32_t lastCheck = 0;          // previous check for stale peers
 
   /*
     Returns the index of the peer with the given ID, or -1 if it is not a peer
@@ -27,73 +71,107 @@ struct Cluster {
     Adds a new peer or refreshes an existing peer's information
     Returns false if the peer is new and the cluster is full
   */
-  bool updatePeer(const Data &buffer);
+  bool update(const Data &node);
+
+  /*
+    Removes peers not heard for more than PEER_TIMEOUT (ms), i.e. out of range
+    Returns the number removed
+  */
+  uint8_t removeStale(void);
 };
 
-// LoRa radio, routing and Rx packet handling
+/*
+  LoRa radio, MAC and cluster
+
+  MAC (CSMA/CA):
+    1. DIO0 interrupt sets rxFlag when a packet is received
+    2. The network loop runs rx() then beaconDue() every loop, independently
+    3. rx() reads the packet, and starts a random back-off (the channel was busy)
+    4. beaconDue() only lets a beacon out once the back-off has ended and no packet is on air (receiving)
+
+  Every received packet adds or refreshes its sender in the cluster
+
+  All radio SPI runs in the network task, not in interrupts (see the TVV PATCH note in lib/LoRa/src/LoRa.h)
+*/
 struct Vanet {
 
   SPIClass spi{HSPI};
 
-  // Radio interrupt flags (set by loraDio0ISR / loraDio1ISR, cleared by the code that handles them)
-  volatile bool rxFlag = false;     // DIO0 RxDone: a packet is waiting in the radio FIFO
-  volatile bool dio1Flag = false;   // DIO1: RxTimeout in single Rx mode, CadDetected in CAD mode (for a future MAC protocol)
+  // Radio interrupt flag
+  volatile bool rxFlag = false;     // DIO0: a packet has been received
+  bool rxValid = false;             // last packet was a valid TVV packet
 
-  // Rx packet handling flags
-  bool extract = true;
-  bool pass = false;
-  bool update = false;
-  bool add = false;
+  // Latest message from a peer (for the display)
+  uint8_t peerMsg = 0;          // message code of the latest received packet, 0 = none
+  uint8_t peerMsgId = 0;        // ID of the peer that sent it
+
+  // Message in my last beacon sent (for the host)
+  uint8_t lastMsg = 0;
 
   // Timestamps (ms)
   uint32_t lastTx = 0;          // previous VANET transmission
 
-  // Last received packet
-  Data buffer;
+  // Back-off (ms)
+  uint32_t backoffStart = 0;    // when it started
+  uint32_t backoffMs = 0;       // how long it lasts (random)
 
-  // Routing
+  // Last received packet
+  Data rxBuffer;
+
+  // Peers
   Cluster cluster;
 
   /*
-    Setup LoRa, attaches the DIO0/DIO1 interrupts and starts continuous Rx
+    Setup LoRa, interrupts and continuous Rx
     Returns true if successful
   */
   bool init(void);
 
   /*
-    Procedure for receiving LoRa packet into buffer
-    Only reads the radio when the DIO0 interrupt has set rxFlag, then returns to continuous Rx
-    Returns the message, or -1 otherwise
+    Reads a received packet (if rxFlag is set) and starts the back-off
+    Returns true if a valid TVV packet was read into rxBuffer
   */
-  int rx(void);
+  bool rx(void);
 
   /*
-    Reads and parses the packet waiting in the radio FIFO into buffer
-    Returns the message, or -1 if there was no valid packet
+    Reads the packet into rxBuffer and adds or refreshes the sender in the cluster
+    Ignores packets of the wrong size
+    (Do not use LoRa.parsePacket() here: the library has already read the packet)
   */
-  int readPacket(void);
+  void readPacket(int size);
 
   /*
-    Procedure for transmitting LoRa packet, then returns to continuous Rx
-    node: the node information to send (pass a copy of myself taken under myselfMutex)
+    Resets rxBuffer to default values (all fields 0)
   */
-  void tx(byte destId, const Data &node);
+  void clearBuffer(void);
 
   /*
-    Checks the ID against myself and the cluster
-    Returns 1 if it is me or broadcast, 2 if it is a peer, 0 otherwise
+    Starts a new random back-off (BACKOFF_MIN_MS to BACKOFF_MAX_MS)
   */
-  uint8_t analyseId(byte id);
+  void startBackoff(void);
 
   /*
-    Sets the Rx packet handling flags from the destination and source IDs
+    Returns true while the back-off is running
   */
-  void handleRx(byte destId, byte srcId);
+  bool backoffActive(void);
 
   /*
-    Resets all the flags
+    Returns true if a packet is being received right now
+    (rxFlag only shows packets that have finished, the modem status also shows one still on air)
   */
-  void resetRxFlags(void);
+  bool receiving(void);
+
+  /*
+    Returns true when a beacon is due, the back-off has ended and the channel is free
+  */
+  bool beaconDue(void);
+
+  /*
+    Broadcasts a node as a binary packet, then returns to Rx
+    node: the node to send (a copy of myself taken under myselfMutex)
+    Returns true if it was sent (false if the radio was busy)
+  */
+  bool tx(const Data &node);
 };
 
 //*************************************************************************************************************************************************
@@ -107,13 +185,19 @@ extern Vanet vanet;
 //*************************************************************************************************************************************************
 
 /*
-  LoRa DIO0 (RxDone): sets vanet.rxFlag
+  LoRa DIO0: sets vanet.rxFlag when a packet is received
+  Replaces the library's own DIO0 interrupt, which uses SPI
 */
 void IRAM_ATTR loraDio0ISR();
 
+//*************************************************************************************************************************************************
+// CALLBACKS
+//*************************************************************************************************************************************************
+
 /*
-  LoRa DIO1 (RxTimeout / CadDetected): sets vanet.dio1Flag
+  Called by the LoRa library (from rx()) for each valid packet received
+  size: packet length in bytes
 */
-void IRAM_ATTR loraDio1ISR();
+void onLoraReceive(int size);
 
 #endif // TVV_VANET_H

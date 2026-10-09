@@ -1,75 +1,96 @@
 //*************************************************************************************************************************************************
 // TUKZIE V2X VANET (TVV)
-// NODE FIRMWARE - DASHBOARD (UART)
+// NODE FIRMWARE - HOST (UART)
 //*************************************************************************************************************************************************
 
 #include "system.h"
-#include "dashboard.h"
+#include "host.h"
+#include "interpret.h"
+#include <driver/gpio.h>
 
 //*************************************************************************************************************************************************
 // INSTANCES
 //*************************************************************************************************************************************************
 
-Dashboard dash;
+Host host;
 
 //*************************************************************************************************************************************************
 // FUNCTIONS
 //*************************************************************************************************************************************************
 
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+// Host
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+
 /*
-  Setup dashboard communication and serial debugging messages
-  Returns true if the dashboard UART driver was installed
+  Setup the host UART
+  Returns true if the UART driver was installed
 */
-bool Dashboard::init(void) {
-  uart.begin(DASH_BAUD, SERIAL_8N1, DASH_RX, DASH_TX);
+bool Host::init(void) {
+  uart.begin(HOST_BAUD, SERIAL_8N1, HOST_RX, HOST_TX);
 
   if (!uart) {
-    reportError("Dashboard: UART driver failed to install\n");
+    reportError("Host: UART driver failed to install\n");
     return false;
   }
 
-  ok = true;
+  // Keep RX high with no host connected, so a floating pin cannot read noise
+  gpio_pullup_en((gpio_num_t)HOST_RX);
   return true;
 }
 
 /*
-  Transmits myself and a table of nodes to the TUKZIE dashboard
-  One node per line
+  Transmits myself and a table of nodes to the host, one packet per node: "$<node>\n"
+  me: a copy of myself
 */
-void Dashboard::tx(Data table[], uint8_t size) {
+void Host::tx(const Data &me, Data table[], uint8_t size) {
 
-  String payload = myself.toStr() + "\n";
+  String payload = String(HOST_START) + me.toStr() + "\n";
   for (uint8_t i = 0; i < size; i++) {
-    payload += table[i].toStr() + "\n";
+    payload += String(HOST_START) + table[i].toStr() + "\n";
   }
 
-  uart.println(payload);
+  uart.print(payload);
 }
 
 /*
-  Receives and parses a packet from the TUKZIE dashboard
-  Packets are terminated by '\n'
+  Receives and parses a packet from the host into myself
+  Packet: "$status,tasks,battery\n" (anything before the '$' is ignored)
   Returns true when a complete packet has been parsed
 */
-bool Dashboard::rx(void) {
+bool Host::rx(void) {
 
   bool complete = false;
 
-  // Collect bytes until a full packet has arrived
+  // Collect bytes from a HOST_START until the '\n'
   while (uart.available()) {
     char c = uart.read();
 
+    // Start (or restart) a packet, so a packet joined midway is never used
+    if (c == HOST_START) {
+      inPacket = true;
+      rxLen = 0;
+      continue;
+    }
+
+    // Ignore anything outside a packet
+    if (!inPacket) {
+      continue;
+    }
+
     if (c == '\n') {
+      inPacket = false;
       complete = true;
-      break;    // leave any following packet in the UART buffer for the next call
+      break;    // leave the next packet for the next call
     }
 
     if (c != '\r') {    // drops any '\r' before the '\n'
       rxBuffer[rxLen++] = c;
     }
 
-    // Drop oversized/garbled packets (keeps room for the terminator)
+    // Drop oversized/garbled packets and wait for the next HOST_START (keeps room for the terminator)
     if (rxLen >= MSG_SIZE - 1) {
+      inPacket = false;
       rxLen = 0;
     }
   }
@@ -81,26 +102,31 @@ bool Dashboard::rx(void) {
   rxBuffer[rxLen] = '\0';
   rxLen = 0;    // ready for the next packet
 
-  // sscanf %d needs int, so the codes are parsed into ints then narrowed
-  int status, tasks, message;
+  // sscanf %d needs int
+  int status, tasks;
   float battery;
   int got = sscanf(rxBuffer,
   "%d,"                   // status
-  "%d,"                   // deliveries
-  "%f,"                   // battery
-  "%d",                   // message
+  "%d,"                   // tasks
+  "%f",                   // battery
   &status,
   &tasks,
-  &battery,
-  &message);
+  &battery);
 
-  if (got != 4) {
+  if (got != 3) {
     return false;
   }
 
   myself.status = (uint8_t)status;
   myself.tasks = (uint8_t)tasks;
   myself.battery = battery;
-  myself.message = (uint8_t)message;
+  lastRx = millis();
   return true;
+}
+
+/*
+  Returns true if a valid host packet arrived within HOST_TIMEOUT
+*/
+bool Host::present(void) {
+  return (lastRx != 0) && (millis() - lastRx < HOST_TIMEOUT);
 }

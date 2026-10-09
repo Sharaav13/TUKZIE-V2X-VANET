@@ -4,7 +4,7 @@
 //*************************************************************************************************************************************************
 /*
   Version:  0
-  Date:     25/09/2026
+  Date:     09/10/2026
   Authors:  Sharaav Dhebideen
 */
 //*************************************************************************************************************************************************
@@ -17,20 +17,14 @@
 //*************************************************************************************************************************************************
 
 #include <Arduino.h>
-#include <stdio.h>
-#include <string.h>
 #include <inttypes.h>
 #include <Wire.h>
 #include <SPI.h>
 #include <SD.h>                 // SD Card
 #include <Adafruit_SSD1306.h>   // Display
-#include <Adafruit_GFX.h>       // Display
 #include <TinyGPS++.h>          // GPS
 #include "LSM6.h"               // IMU
 #include <LoRa.h>               // LoRa
-#include <BLEDevice.h>          // TUKZIE dashboard
-#include <BLEServer.h>          // TUKZIE dashboard
-#include <BLE2902.h>            // TUKZIE dashboard
 #include <Adafruit_NeoPixel.h>  // RGB (debugging)
 
 //*************************************************************************************************************************************************
@@ -44,35 +38,38 @@
 #define SERIAL_BAUD   115200
 
 // FreeRTOS tasks
-#define SENSING_CORE  0     // GPS, IMU, dashboard Rx
-#define NETWORK_CORE  1     // VANET Rx/Tx, SD Card logging
+#define SENSING_CORE  0     // GPS, IMU, host Rx
+#define NETWORK_CORE  1     // VANET Rx/Tx, host Tx, OLED, RGB, SD Card logging
 #define TASK_STACK    8192  // bytes per task
 #define TASK_PRIORITY 1
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
-// SYSTEM (System.cpp)
+// SYSTEM (system.cpp)
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 // Messages
 #define MSG_SIZE      128
-// #define TTL 10 // depends on node sparsity
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
-// SD CARD (Storage.cpp)
+// SD CARD (storage.cpp)
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 #define SD_CS         10    // Pin 10
 #define SD_MOSI       11    // Pin 11
 #define SD_SCK        12    // Pin 12
 #define SD_MISO       13    // Pin 13
-#define CFG_FIELDS    3
-#define CFG_PATH      "/config.txt"
-#define LOG_FILE      "tvv_log"       // logged to /tvv_log.txt
-#define LOG_INTVL     1000            // ms between logs of myself
-#define SD_PATH_SIZE  32              // max length of "/<file>.txt"
+#define NODE_LOG_INTVL    1000            // ms between logs of myself (NODE_FILE)
+#define SENSE_LOG_INTVL   1000            // ms between logs of sensing (SENSE_FILE)
+
+// SD Card files
+#define CONFIG_FILE       "/config.txt"         // "id,fleetId", e.g. "7,3"
+#define SENSE_FILE        "/sensing.txt"        // my GPS and IMU data
+#define NODE_FILE         "/node.txt"           // all my data
+#define LOG_FILE          "/log.txt"            // VANET Rx and Tx
+#define DEBUG_FILE        "/debug.txt"          // SD Card testing
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
-// IMU (Sensing.cpp)
+// IMU (sensing.cpp)
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 #define IMU_I2C_SDA   8     // Pin 8
@@ -82,37 +79,34 @@
 #define ACC_MG_PER_LSB          0.061f
 #define GYRO_MDPS_PER_LSB       4.375f    // Check datasheet
 #define CALIBRATION_SAMPLES     1000.0    // Calibrating IMU
-#define VIBR_G_THRESHOLD        1.8
-#define VIBR_INTERVAL_THRESHOLD 500
 
-// Reading indices (reading argument of imu.get)
+// imu.get() readings
 #define ACC           0
 #define GYRO          1
 
-// Axis indices (index of imu.acc/imu.gyro/imu.accBias/imu.gyroBias, axis argument of imu.get)
+// Axis indices (imu arrays and imu.get())
 #define X_AXIS        0
 #define Y_AXIS        1
 #define Z_AXIS        2
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
-// GPS & PPS (Sensing.cpp)
+// GPS (sensing.cpp)
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 #define GPS_RX        17    // Pin 17, to TX of GPS
 #define GPS_TX        18    // Pin 18, to RX of GPS
-#define PPS           16    // Pin 16
 #define GPS_BAUD      9600
 #define SAST_OFFSET   2     // SAST = UTC + 2hr
-#define GPS_TIMEOUT   3000  // ms without UART data before the GPS is considered missing
-#define GPS_MAX_AGE   2000  // ms before a GPS fix/speed is considered stale
+#define GPS_TIMEOUT   3000  // ms without data => GPS missing
+#define GPS_MAX_AGE   2000  // ms before a fix/speed is stale
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
-// SPEED FUSION - KALMAN FILTER (Sensing.cpp)
+// SPEED FUSION - KALMAN FILTER (sensing.cpp)
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 #define GRAVITY             9.80665f  // m/s^2
 #define FUSION_PERIOD_US    10000     // IMU prediction period (100 Hz)
-#define IMU_MAX_FAILS       100       // consecutive failed IMU reads before the IMU is flagged as lost
+#define IMU_MAX_FAILS       100       // failed reads in a row => IMU lost
 
 // Attitude filter
 #define ATTITUDE_GYRO_WEIGHT  0.997f
@@ -122,7 +116,7 @@
 #define ACCEL_DEADBAND      0.06f     // m/s^2
 #define MAX_USED_ACCEL      4.0f      // m/s^2
 #define TURN_SUPPRESS_DPS   30.0f     // no IMU prediction during fast turns
-#define MAX_DEAD_RECKON_MS  3000      // max IMU only prediction after the last GPS correction
+#define MAX_DEAD_RECKON_MS  3000      // ms of IMU-only prediction after a GPS correction
 
 // Stationary detector
 #define STOP_SPEED_MPS      0.40f
@@ -132,7 +126,30 @@
 #define ZUPT_INTVL          100       // ms between zero velocity updates
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
-// OLED DISPLAY (Display.cpp)
+// INTERPRET (interpret.cpp)
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+
+// Coded messages
+#define MSG_COUNT               5         // entries in codedMessages and msgFlags
+#define STATUS_COUNT            4         // entries in codedStatus
+
+// Accident
+#define FORCE_DURATION          10000     // ms of large force => accident
+#define UPSIDE_DOWN_G           -0.8      // g, raw Z at or below this => upside down (upright ~+1, upside down ~-1)
+#define SIDE_G                  0.8       // g, raw |X| or |Y| at or above this => on its side (upright ~0, on its side ~1)
+#define SPIN_DURATION           1000      // ms of spinning => accident
+
+// Terrain
+#define VIBR_G_THRESHOLD        0.8       // g, counts as a vibration
+#define VIBR_G_RELEASE          0.6       // g, drop below to count the next one (must be below VIBR_G_THRESHOLD)
+#define VIBR_INTERVAL_THRESHOLD 500       // ms counting window
+#define VIBR_CNT_THRESHOLD      3         // => rough terrain (fewer = pothole)
+
+// Battery
+#define LOW_BATTERY_THRESHOLD   50        // percent
+
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+// OLED DISPLAY (display.cpp)
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 #define OLED_I2C_SDA  4     // Pin 4
@@ -140,16 +157,19 @@
 #define OLED_RESET    -1    // Pin -1, no reset pin
 #define SCREEN_WIDTH  128
 #define SCREEN_HEIGHT 64
+#define DISP_INTVL    1000  // ms between node view updates
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
-// SYSTEM LIGHTS - RGB LED (Display.cpp)
+// SYSTEM LIGHTS - RGB LED (display.cpp)
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 #define RGB_LED_PIN   48    // Pin 48
 #define NUM_RGB_LEDS  1
 #define BRIGHTNESS    100   // (0-255)
+#define FLASH_MS      500   // ms a Tx flash stays on
 
-// Colours (argument of lights.toggle)
+// Colours (lights.toggle)
+#define OFF           0
 #define RED           1
 #define ORANGE        2
 #define YELLOW        3
@@ -158,7 +178,7 @@
 #define PURPLE        6
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
-// VANET (Vanet.cpp)
+// VANET (vanet.cpp)
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 #define LORA_SCK      39    // Pin 39
@@ -167,8 +187,6 @@
 #define LORA_NSS      42    // Pin 42
 #define LORA_RST      38    // Pin 38
 #define LORA_DIO0     21    // Pin 21, RxDone interrupt
-#define LORA_DIO1     47    // Pin 47, RxTimeout / CadDetected interrupt (PLACEHOLDER: set to the wired pin)
-
 // LoRa radio
 #define LORA_SPI_FREQ 8E6       // 1E6 for breadboarding otherwise 8E6
 #define LORA_FREQ     433.6E6   // Hz (433 MHz band)
@@ -177,56 +195,53 @@
 #define LORA_CR       5         // denominator of 4/x
 #define LORA_SYNC     0x12      // private network
 #define LORA_TXPOWER  10        // dBm via PA_BOOST
-#define LORA_PREAMBLE 8         // symbols
-#define BEACON_INTVL  5000      // ms
+#define BEACON_INTVL  2000      // ms
 
-// Routing
-#define MAX_PEERS     3
-// #define TTL 5
-// #define CLSUTER_BOUNDS 10 // km and is editable
+// MAC: random wait before Tx after an Rx (~4 x 72 ms airtime)
+#define BACKOFF_MIN_MS  0       // ms
+#define BACKOFF_MAX_MS  300     // ms
 
-// WGS84 ellipsoid (used by GPS)
-#define WGS84_A       6378137.0           // semi-major axis (m)
-#define WGS84_E2      6.69437999014e-3    // first eccentricity squared
+// MAC: radio status, checked before Tx for a packet on air
+#define LORA_REG_MODEM_STAT  0x18    // RegModemStat address
+#define MODEM_STAT_RX_BUSY   0x0B    // bits 0, 1, 3: signal detected, synchronised, header valid (bit 2 "RX on-going" is always set in continuous Rx)
 
-// ------------------------------------------------------------------------------------------------------------------------------------------------
-// DASHBOARD (Dashboard.cpp)
-// ------------------------------------------------------------------------------------------------------------------------------------------------
-
-#define DASH_RX       1     // Pin 1
-#define DASH_TX       2     // Pin 2
-#define DASH_BAUD     115200
-
-#define DASH_NAME     "TUKZIE"
-
-// Nordic UART Service (NUS) - standard BLE serial service
-#define NUS_SERVICE_UUID  "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
-#define NUS_RX_UUID       "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"   // dashboard writes to node
-#define NUS_TX_UUID       "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"   // node notifies dashboard
-
-#define BLE_CHUNK     20    // bytes per notification (default BLE MTU of 23 minus 3 byte header)
+// Cluster
+#define MAX_PEERS         3
+#define PEER_TIMEOUT      10000   // ms without hearing a peer => removed (out of range)
+#define PEER_CHECK_INTVL  1000    // ms between checks for stale peers
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
-// DEBUG (Debug.cpp)
+// HOST (host.cpp)
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
-// Peripherals to debug (argument of debug)
+#define HOST_RX       1     // Pin 1
+#define HOST_TX       2     // Pin 2
+#define HOST_BAUD     115200
+#define HOST_START    '$'   // first character of every host packet (both directions)
+#define HOST_TX_INTVL 1000  // ms between sends of myself and the cluster
+#define HOST_TIMEOUT  10000 // ms without a valid host packet => host absent
+
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+// DIAGNOSTICS (diagnostics.cpp)
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+
+// debug() peripherals
 #define DBG_SD_CARD   0     // SD Card write and read
 #define DBG_GPS       1     // GPS data
-#define DBG_PPS_CLOCK 2     // PPS clock synchronisation error
-#define DBG_IMU       3     // IMU data
-#define DBG_DASH      4     // Dashboard UART Tx and Rx
-#define DBG_LORA_RX   5     // LoRa receive only
-#define DBG_LORA_TX   6     // LoRa transmit only
-#define DBG_LORA      7     // LoRa transmit and receive
+#define DBG_IMU       2     // IMU data
+#define DBG_HOST      3     // Host UART Tx and Rx
+#define DBG_LORA_RX   4     // LoRa receive only
+#define DBG_LORA_TX   5     // LoRa transmit only
+#define DBG_LORA      6     // LoRa transmit and receive
+#define DBG_OLED      7     // OLED and Serial Monitor output
 
 // Sampling and intervals (milliseconds)
 #define GPS_SAMPLING    1000
 #define IMU_SAMPLING    1000
 #define SD_READ_INTVL   2000
 #define SD_WRITE_INTVL  1000
-#define DASH_TX_INTVL   1000
-#define DASH_RX_INTVL   1000
+#define HOST_RX_INTVL   1000
+#define OLED_TEST_INTVL 1000
 
 //*************************************************************************************************************************************************
 // STRUCTURES
@@ -234,60 +249,52 @@
 
 struct Data {
 
-    // VANET routing
-    byte dest;
-    byte src;
-    byte ttl;
-    float distance;
-    char payload[MSG_SIZE] = "";    // fixed size so Data copies never touch the heap
-
     // Network health
-    float rssi;
-    float snr;
-    float freqErr;
+    float rssi = 0.0;
+    float snr = 0.0;
+    float freqErr = 0.0;
 
     // Node identification
     byte id = 0;
-    byte fleetId;
+    byte fleetId = 0;
 
     // Location
-    float lat;      // deg (+N/-S)
-    float lon;      // deg (+E/-W)
-    float alt;      // m
+    float lat = 0.0;      // deg (+N/-S)
+    float lon = 0.0;      // deg (+E/-W)
+    float alt = 0.0;     // m
 
     // GPS fix quality
-    byte sats;      // satellites in view
-    float hdop;     // horizontal dilution of precision
+    byte sats = 0;      // satellites in view
+    float hdop = 0.0;     // horizontal dilution of precision
 
     // Motion
-    float speed;
-    float course;
+    float speed = 0.0;
+    float course = 0.0;
 
     // Fleet management
-    uint8_t tasks;      // number of pending tasks
-    uint8_t status;     // number coded (codedStatus)
-    uint8_t message;    // number coded (codedMessages)
+    uint8_t tasks = 0;      // number of pending tasks
+    uint8_t status = 0;     // number coded (codedStatus)
+    uint8_t message = 0;   // number coded (codedMessages)
 
     // Vehicle health
-    float battery;
+    float battery = 100.0;
 
     // Last updated time
-    uint32_t date;
-    uint32_t time;
+    uint32_t date = 0;
+    uint32_t time = 0;
 
     /*
       Converts the node into a single CSV string
     */
-    String toStr(void);
-
-    /*
-      Calculates the 3D straight line distance (km) to another node
-      lat/lon in degrees, alt in metres above the ellipsoid
-    */
-    float distanceTo(const Data &other);
+    String toStr(void) const;
 };
 
-// To make the parsing easier, each node is stored as an array
+// System errors (both cores, protected by mutex)
+struct Errors {
+    bool check = false;                 // true once an error is reported
+    String msg = "Errors in:\n";        // all error messages
+    SemaphoreHandle_t mutex = NULL;     // created at the start of setup
+};
 
 //*************************************************************************************************************************************************
 // GLOBAL VARIABLES
@@ -295,22 +302,16 @@ struct Data {
 
 extern Data myself;
 
-// Node congifuration
-extern uint8_t config[CFG_FIELDS];  // {node ID, use, fleet number}
-
 // System operation
-extern bool error;
-extern String errMsg;
-extern SemaphoreHandle_t errMutex;  // protects error and errMsg, which both cores write
+extern Errors errors;
 
 //*************************************************************************************************************************************************
 // FUNCTIONS
 //*************************************************************************************************************************************************
 
 /*
-  Flags an error and appends its message to errMsg
-  Safe to call from both cores once errMutex has been created at the start of setup
+  Sets errors.check and appends text to errors.msg (safe from both cores)
 */
-void reportError(const char *msg);
+void reportError(const char *text);
 
 #endif // TVV_SYSTEM_H

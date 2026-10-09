@@ -10,12 +10,12 @@
 //*************************************************************************************************************************************************
 /*
   DESCRIPTION:
-  1. Each TVV node has an uniquie ID, stored in teh configuration data on the inserted SD card.
+  1. Each TVV node has a unique ID, stored in the configuration file on the inserted SD card.
   2. The node retrieves and interprets GPS and IMU information itself.
-  3. Other information is exchanged with it via the onboard TUKZIE dashboard.
-  4. Nodes communicate using LoRa and implement a MAC and Routing protocols.
-  5. The TVV mobile app connects via Bluetooth to a node to display messages and network topology of all nodes.
-  6. Dashboard port can provide serial messages for debugging.
+  3. Status, tasks and battery come from the onboard host, which receives the node and its cluster in return.
+  4. Nodes broadcast over LoRa with a MAC protocol, and keep a cluster of the peers they hear.
+  5. The OLED shows the node view and the RGB LED flashes the message sent with each beacon.
+  6. The USB serial port provides debugging messages.
 */
 //*************************************************************************************************************************************************
 // LIBRARIES
@@ -24,19 +24,21 @@
 #include <system.h>         // External libraries, macros, Data struct & shared global variables
 #include <display.h>        // OLED display
 #include <storage.h>        // SD Card
-#include <sensing.h>        // GPS & PPS, IMU
-#include <dashboard.h>      // TUKZIE dashboard
+#include <sensing.h>        // GPS, IMU
+#include <interpret.h>      // Coded messages & status, road awareness
+#include <host.h>           // Host link (UART), e.g. the TUKZIE dashboard
 #include <vanet.h>          // LoRa
-#include <debug.h>          // Peripheral debugging
+#include <diagnostics.h>    // Peripheral debugging, testing and log formatting
 
 //*************************************************************************************************************************************************
 // GLOBAL VARIABLES
 //*************************************************************************************************************************************************
 
+// true: loop() runs the debug calls, no tasks
+bool debugMode = false;
+
 // Initialisation results (true = successful)
-bool dashReady = false;
-bool oledReady = false;
-bool rgbReady = false;
+bool hostReady = false;
 bool sdReady = false;
 bool gpsReady = false;
 bool imuReady = false;
@@ -46,7 +48,7 @@ bool vanetReady = false;
 TaskHandle_t sensingTask = NULL;    // core 0
 TaskHandle_t networkTask = NULL;    // core 1
 
-// Protects myself, which is written on core 0 and read on core 1
+// Protects myself (written on core 0, read on core 1)
 SemaphoreHandle_t myselfMutex = NULL;
 
 //*************************************************************************************************************************************************
@@ -58,14 +60,24 @@ SemaphoreHandle_t myselfMutex = NULL;
 */
 String initStatus(const char *name, bool ready) {
   if (!ready) {
-    error = true;
+    errors.check = true;
   }
   return String(name) + (ready ? " init pass.\n" : " init failed.\n");
 }
 
 /*
-  Returns a copy of myself taken under myselfMutex
-  Used on core 1 so myself is never read while core 0 is updating it
+  Shows an init result on the OLED and blinks the RGB LED (green = pass, red = fail) until the next OLED change
+  holdMs: time until the next OLED change
+*/
+void showInit(const char *name, bool ready, bool append, uint32_t holdMs) {
+  oled.disp(initStatus(name, ready), 1, false, append);
+  lights.toggle(ready ? GREEN : RED);
+  delay(holdMs);
+  lights.toggle(OFF);
+}
+
+/*
+  Returns a copy of myself, taken under myselfMutex
 */
 Data copyMyself(void) {
   Data copy;
@@ -80,59 +92,127 @@ Data copyMyself(void) {
 //*************************************************************************************************************************************************
 
 /*
-  Core 0: collects and interprets GPS and IMU data, receives dashboard packets and stores them in myself
+  Core 0: GPS, IMU and host Rx into myself
 */
 void sensingLoop(void *param) {
   for (;;) {
 
-    // Interpret IMU data (Kalman filter predict step at 100 Hz, does not touch myself)
-    // Skipped if the IMU failed to start or calibrate: the filter then only receives GPS corrections, so it follows the GPS speed
+    // Kalman predict step at 100 Hz (without the IMU, speed follows the GPS)
     if (imuReady) {
       speedFilter.update();
     }
 
     // Collect, interpret and store into myself
     xSemaphoreTake(myselfMutex, portMAX_DELAY);
-    gps.get();                              // GPS data, also runs the Kalman filter correct step
-    myself.speed = speedFilter.getSpeed();  // fused GPS + IMU speed (km/h)
+    gps.get();                              // GPS data and Kalman correct step
+    myself.speed = speedFilter.getSpeed();  // fused GPS + IMU speed (kmph)
     if (imuReady) {
-      senseTerrain();                       // road awareness from the IMU
+      checkAccident();                      // accident or toppled over
+      checkTerrain();                       // rough terrain or potholes
     }
-    dash.rx();                              // status, tasks, battery and message from the dashboard
+    if (hostReady) {
+      host.rx();                            // status, tasks and battery from the host
+    }
+    if (host.present()) {
+      checkBattery();                       // only with a host, which is the only source of the battery
+    }
     xSemaphoreGive(myselfMutex);
 
-    vTaskDelay(1);                  // yield (1 tick = 1 ms) so the idle task can feed the watchdog
+    vTaskDelay(1);                  // yield 1 ms so the idle task feeds the watchdog
   }
 }
 
 /*
-  Core 1: handles VANET Rx and Tx and logs data to the SD Card
+  Core 1: VANET Rx/Tx, cluster, OLED node view and SD Card logs
 */
 void networkLoop(void *param) {
+  Serial.println("TRACE: networkLoop running");    // TEMP TX TRACE
   for (;;) {
+
+    // TEMP TX TRACE: once a second, what is holding a beacon back
+    static uint32_t lastTrace = 0;
+    if (millis() - lastTrace >= 1000) {
+      lastTrace = millis();
+      if (!vanetReady) {
+        Serial.println("TRACE: LoRa not ready, no beacons");
+      } else {
+        Serial.printf("TRACE: %lu ms since Tx, backoff %d, modem stat 0x%02X (busy if & 0x0B), rxFlag %d, acc %.2f %.2f %.2f g, gyro %.0f %.0f %.0f dps\n",
+                      (unsigned long)(millis() - vanet.lastTx), (int)vanet.backoffActive(),
+                      LoRa.readRegister(LORA_REG_MODEM_STAT), (int)vanet.rxFlag,
+                      imu.acc[X_AXIS], imu.acc[Y_AXIS], imu.acc[Z_AXIS], imu.gyro[X_AXIS], imu.gyro[Y_AXIS], imu.gyro[Z_AXIS]);
+      }
+    }
+
+    bool received = false;    // a valid packet was read this loop
 
     if (vanetReady) {
 
-      // Rx, logging each packet received
-      if ((vanet.rx() >= 0) && storage.ok) {
-        storage.write("RX," + String(vanet.buffer.id) + "," + vanet.buffer.toStr() + "\n", LOG_FILE);
+      // Rx and Tx run independently (see the MAC note in vanet.h)
+
+      // Rx: also starts the back-off and updates the cluster
+      // Log now: rxBuffer changes on the next rx()
+      received = vanet.rx();
+      if (received) {
+        //storage.write(formatVanet("RX", vanet.rxBuffer), LOG_FILE);
       }
 
-      // Tx, broadcasting myself
-      if (millis() - vanet.lastTx >= BEACON_INTVL) {
-        vanet.tx(0, copyMyself());
-        vanet.lastTx = millis();
+      // Tx: broadcast myself with the top pending message
+      if (vanet.beaconDue()) {
+        Data me = copyMyself();
+        me.message = sortMsg();
+
+        Serial.printf("TRACE: beacon due, sending (message %u)\n", me.message);    // TEMP TX TRACE
+        bool sent = vanet.tx(me);
+        Serial.printf("TRACE: %s\n", sent ? "beacon sent, flashing" : "radio busy, not sent");    // TEMP TX TRACE
+
+        if (sent) {
+          lights.flash(msgColours[me.message]);   // colour of the message sent
+          //storage.write(formatVanet("TX", me), LOG_FILE);
+        } else if (me.message != 0) {
+          setMsgFlag(me.message);           // radio busy: retry next beacon
+        }
+      }
+
+      // Remove peers not heard from for PEER_TIMEOUT
+      if (millis() - vanet.cluster.lastCheck >= PEER_CHECK_INTVL) {
+        // The peer whose message is shown has left the cluster: clear its message
+        if ((vanet.cluster.removeStale() > 0) && (vanet.cluster.find(vanet.peerMsgId) < 0)) {
+          vanet.peerMsg = 0;
+        }
+        vanet.cluster.lastCheck = millis();
       }
     }
+
+    // Host: myself (with the message in my last beacon) and my cluster peers
+    if (hostReady && (millis() - host.lastTx >= HOST_TX_INTVL)) {
+      Data me = copyMyself();
+      me.message = vanet.lastMsg;
+      host.tx(me, vanet.cluster.peerTable, vanet.cluster.count);
+      host.lastTx = millis();
+    }
+
+    // OLED node view: every DISP_INTVL, and straight away for a new packet
+    if (received || (millis() - oled.lastShow >= DISP_INTVL)) {
+      oled.showNode(copyMyself());
+      oled.lastShow = millis();
+    }
+
+    // RGB: end Tx flashes
+    lights.update();
 
     // Log myself
-    if (storage.ok && (millis() - storage.lastWrite >= LOG_INTVL)) {
-      Data me = copyMyself();
-      storage.write("ME," + String(me.id) + "," + me.toStr() + "\n", LOG_FILE);
-      storage.lastWrite = millis();
+    if (millis() - storage.lastNodeLog >= NODE_LOG_INTVL) {
+      //storage.write(formatMyself(copyMyself()), NODE_FILE);
+      storage.lastNodeLog = millis();
     }
 
-    vTaskDelay(1);                  // yield (1 tick = 1 ms) so the idle task can feed the watchdog
+    // Log sensing
+    if (millis() - storage.lastSenseLog >= SENSE_LOG_INTVL) {
+      //storage.write(formatSensing(copyMyself()), SENSE_FILE);
+      storage.lastSenseLog = millis();
+    }
+
+    vTaskDelay(1);                  // yield 1 ms so the idle task feeds the watchdog
   }
 }
 
@@ -145,14 +225,20 @@ void setup() {
   // Serial debugging initialised
   Serial.begin(SERIAL_BAUD);
 
-  // Protects error and errMsg once both cores are running (checked before the tasks start)
-  errMutex = xSemaphoreCreateMutex();
+  // Protects errors (checked before the tasks start)
+  errors.mutex = xSemaphoreCreateMutex();
 
-  // Initialise TUKZIE dashboard
-  dashReady = dash.init();
+  // Protects the message flags (checked before the tasks start)
+  msgFlagsMutex = xSemaphoreCreateMutex();
 
-  // Initialise OLED
-  oledReady = oled.init();
+  // Initialise RGB LED first, so every init result can blink
+  lights.init();
+
+  // Initialise host
+  hostReady = host.init();
+
+  // Initialise OLED (a failure is still reported in the error list)
+  oled.init();
 
   oled.disp("TUKZIE V2X", 2, true, false);
   delay(2000);
@@ -161,28 +247,18 @@ void setup() {
   delay(2000);
   oled.refresh();
 
-  // Show existing init messages
-  oled.disp(initStatus("Dashboard", dashReady), 1, false, false);
-  delay(1000);
-  oled.disp(initStatus("OLED", oledReady), 1, false, true);
-  delay(1000);
+  // Show existing init messages (each blinks green or red)
+  showInit("Host", hostReady, false, 1000);
 
   // Initialise other peripherals
-  rgbReady = lights.init();
-  oled.disp(initStatus("RGB", rgbReady), 1, false, true);
-  delay(1000);
   sdReady = storage.init();
-  oled.disp(initStatus("SD", sdReady), 1, false, true);
-  delay(1000);
+  showInit("SD", sdReady, true, 1000);
   gpsReady = gps.init();
-  oled.disp(initStatus("GPS", gpsReady), 1, false, true);
-  delay(1000);
+  showInit("GPS", gpsReady, true, 1000);
   imuReady = imu.init();
-  oled.disp(initStatus("IMU", imuReady), 1, false, true);
-  delay(1000);
+  showInit("IMU", imuReady, true, 1000);
   vanetReady = vanet.init();
-  oled.disp(initStatus("LoRa", vanetReady), 1, false, true);
-  delay(3000);
+  showInit("LoRa", vanetReady, true, 3000);
 
   // Start configurating node
   oled.refresh();
@@ -190,7 +266,7 @@ void setup() {
   delay(3000);
 
   // Add necessary setup error message
-  if (error) {
+  if (errors.check) {
     reportError("Setup: errors occurred during boot\n");
   }
 
@@ -199,23 +275,32 @@ void setup() {
   oled.disp("Finished boot.", 1, true, false);
   delay(3000);
 
-  if (error) {
-    oled.disp(errMsg, 1, false, false);
+  if (errors.check) {
+    oled.disp(errors.msg, 1, false, false);
+    lights.toggle(RED);         // red while the errors show
     delay(3000);
+    lights.toggle(OFF);
   }
 
   oled.refresh();
 
-  // Start a task on each core (only if both mutexes exist, otherwise shared data would be unprotected)
+  // Debug mode: no tasks, loop() runs the debug calls
+  if (debugMode) {
+    return;
+  }
+
+  // Start a task on each core (only if all mutexes exist)
   myselfMutex = xSemaphoreCreateMutex();
-  if ((myselfMutex == NULL) || (errMutex == NULL)) {
+  if ((myselfMutex == NULL) || (errors.mutex == NULL) || (msgFlagsMutex == NULL)) {
     reportError("Setup: mutex could not be created\n");
-    oled.disp(errMsg, 1, false, false);
+    oled.disp(errors.msg, 1, false, false);   // falls back to Serial if the OLED failed
+    lights.toggle(RED);                         // red while the errors show (they stay on screen)
     return;
   }
 
   xTaskCreatePinnedToCore(sensingLoop, "sensing", TASK_STACK, NULL, TASK_PRIORITY, &sensingTask, SENSING_CORE);
   xTaskCreatePinnedToCore(networkLoop, "network", TASK_STACK, NULL, TASK_PRIORITY, &networkTask, NETWORK_CORE);
+  Serial.println("TRACE: tasks started");    // TEMP TX TRACE
 }
 
 //*************************************************************************************************************************************************
@@ -224,20 +309,19 @@ void setup() {
 
 void loop() {
 
-  // Modify for debugging operation => wantthe errors to show without halting function
-  // Show error in setup or operation
-  //if (error) {
-    //oled.disp(errMsg, 1, false, false);
-    //while(true) {delay(1000);}
-  //}
-
-  // Peripheral debugging: stop the tasks being created at the end of setup, then uncomment one debug call
+  // Peripheral debugging: set debugMode to true, then uncomment one debug call
+  //debug(DBG_OLED);
   //debug(DBG_IMU);
   //debug(DBG_GPS);
   //debug(DBG_SD_CARD);
-  //debug(DBG_DASH);
+  //debug(DBG_HOST);
   //debug(DBG_LORA);
 
+  // Debug mode: keep looping
+  if (debugMode) {
+    return;
+  }
+
   // All work runs in sensingLoop (core 0) and networkLoop (core 1)
-  vTaskDelete(NULL);    // removes the Arduino loop task so it does not compete with networkLoop on core 1
+  vTaskDelete(NULL);    // end the Arduino loop task (frees core 1)
 }

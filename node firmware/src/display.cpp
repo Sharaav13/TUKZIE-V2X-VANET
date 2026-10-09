@@ -5,6 +5,9 @@
 
 #include "system.h"
 #include "display.h"
+#include "vanet.h"
+#include "host.h"
+#include "interpret.h"
 
 //*************************************************************************************************************************************************
 // INSTANCES
@@ -14,8 +17,12 @@ OLED oled;
 SystemLights lights;
 
 //*************************************************************************************************************************************************
-// FUNCTIONS - OLED
+// FUNCTIONS
 //*************************************************************************************************************************************************
+
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+// OLED
+// ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
   Setup OLED display
@@ -57,8 +64,7 @@ void OLED::centerText(const String &text) {
 }
 
 /*
-  Display the formatted text onto the OLED display or Serial if OLED fails
-  Also used for OLED display module testing
+  Shows text on the OLED (Serial if the OLED failed)
 */
 void OLED::disp(const String &text, uint8_t size, bool center, bool append) {
 
@@ -67,7 +73,7 @@ void OLED::disp(const String &text, uint8_t size, bool center, bool append) {
     return;
   }
 
-  // Appended to previous text or not and start afresh if text ran off screen
+  // New screen unless appending, or if the text ran off the bottom
   if(!append || dev.getCursorY() >= dev.height()) {
     dev.clearDisplay();     // Clear display buffer
     dev.setCursor(0, 0);    // Cursor to origin
@@ -92,9 +98,43 @@ void OLED::refresh(void) {
   dev.display();
 }
 
-//*************************************************************************************************************************************************
-// FUNCTIONS - SYSTEM LIGHTS
-//*************************************************************************************************************************************************
+/*
+  Node view: my speed, battery, status and location, my peers' IDs and the latest peer message
+  me: a copy of myself
+*/
+void OLED::showNode(const Data &me) {
+
+  // Speed, battery and status (21 characters per line), e.g. "45kmph 85% Delivering"
+  String text = String(me.speed, 0) + "kmph ";
+  text += host.present() ? String(me.battery, 0) + "% " : String("--% ");   // battery is unknown without a host
+  text += (me.status < STATUS_COUNT) ? codedStatus[me.status] : "Unknown";   // codes outside codedStatus show as Unknown
+  text += "\n";
+  text += "Lat: " + String(me.lat, 7) + "\n";
+  text += "Lon: " + String(me.lon, 7) + "\n";
+
+  // Cluster peers
+  text += "Peers:";
+  if (vanet.cluster.count == 0) {
+    text += " none";
+  }
+  for (uint8_t i = 0; i < vanet.cluster.count; i++) {
+    text += " " + String(vanet.cluster.peerTable[i].id);
+  }
+  text += "\n";
+
+  // Latest peer message (unknown codes ignored)
+  if ((vanet.peerMsg != 0) && (vanet.peerMsg < MSG_COUNT)) {
+    text += "Msg from " + String(vanet.peerMsgId) + ":\n" + codedMessages[vanet.peerMsg];
+  } else {
+    text += "No messages";
+  }
+
+  disp(text, 1, false, false);
+}
+
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+// SystemLights
+// ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
   Setup RGB LED
@@ -103,8 +143,8 @@ void OLED::refresh(void) {
 bool SystemLights::init(void) {
   dev.begin();
   dev.setBrightness(BRIGHTNESS);            // (0-255)
-  dev.setPixelColor(0, dev.Color(0, 0, 0)); // Initialize all pixels to 'off'
-  dev.show();                               // Initialize all pixels to 'off'
+  dev.setPixelColor(0, dev.Color(0, 0, 0)); // off
+  dev.show();
   return true;
 }
 
@@ -113,6 +153,8 @@ bool SystemLights::init(void) {
   colour: RED, ORANGE, YELLOW, GREEN, BLUE or PURPLE (anything else turns it off)
 */
 void SystemLights::toggle(uint8_t colour) {
+  this->colour = colour;
+
   switch (colour) {
     default:
       dev.setPixelColor(0, dev.Color(0, 0, 0)); // Off
@@ -144,4 +186,23 @@ void SystemLights::toggle(uint8_t colour) {
   }
 
   dev.show(); // Push the colour to the LED
+}
+
+/*
+  Shows a colour for FLASH_MS without blocking (update() turns it off)
+*/
+void SystemLights::flash(uint8_t colour) {
+  toggle(colour);
+  flashing = true;
+  flashStart = millis();
+}
+
+/*
+  Call every loop: ends a flash after FLASH_MS
+*/
+void SystemLights::update(void) {
+  if (flashing && (millis() - flashStart >= FLASH_MS)) {
+    flashing = false;
+    toggle(OFF);
+  }
 }
