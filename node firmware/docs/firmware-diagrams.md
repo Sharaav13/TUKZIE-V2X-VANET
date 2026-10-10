@@ -2,7 +2,6 @@
 
 Diagrams of the node firmware in `src/` and `include/` (ESP32-S3, Arduino + FreeRTOS). They are written in Mermaid, which GitHub and VS Code (with a Mermaid extension) render.
 
-0. [Flow: overview](#0-flow-overview): simplified view of the whole firmware
 1. [UML class diagram](#1-uml-class-diagram): structs, modules, global instances and libraries
 2. [UML sequence diagram](#2-uml-sequence-diagram-dual-core-runtime): how the two cores, the radio and the host interact
 3. [UML state diagram](#3-uml-state-diagram-vanet-mac-csmaca): VANET MAC (CSMA/CA)
@@ -11,47 +10,7 @@ Diagrams of the node firmware in `src/` and `include/` (ESP32-S3, Arduino + Free
 6. [Flow: network task](#6-flow-network-task-core-1): `networkLoop()` on core 1
 7. [Flow: speed fusion](#7-flow-speed-fusion-speedfilterimuupdate): `SpeedFilter::imuUpdate()`
 8. [Flow: road awareness and messages](#8-flow-road-awareness-and-message-priority): `checkAccident()`, `checkTerrain()`, `checkBattery()`, `sortMsg()`
-
----
-
-## 0. Flow: overview
-
-A simplified view of the whole firmware: boot, then two tasks running in parallel, one per core. They share the node's own state (`myself`) and the pending message flags, both protected by mutexes.
-
-```mermaid
-flowchart TD
-    A([Power on]) --> B["Initialise peripherals<br/>RGB LED, host UART, OLED,<br/>SD card, GPS, IMU, LoRa"]
-    B --> C["Load node ID and fleet ID<br/>from SD card config"]
-    C --> D{"Boot errors?"}
-    D -- yes --> E["Show errors on OLED,<br/>RGB red"] --> F
-    D -- no --> F["Start two FreeRTOS tasks"]
-    F --> S1
-    F --> N1
-
-    subgraph CORE0["Core 0: Sensing task"]
-        direction TB
-        S1["Read GPS<br/>time, position, course"] --> S2["Fuse GPS + IMU speed<br/>(Kalman filter)"]
-        S2 --> S3["Detect road events<br/>accident, terrain, potholes"]
-        S3 --> S4["Read status, tasks, battery<br/>from host"]
-        S4 --> S5["Write node state,<br/>raise message flags"]
-        S5 --> S1
-    end
-
-    subgraph CORE1["Core 1: Network task"]
-        direction TB
-        N1["Receive peer packets (LoRa)<br/>update cluster, back off"] --> N2{"Beacon due and<br/>channel free?"}
-        N2 -- yes --> N3["Broadcast own packet +<br/>top-priority message,<br/>flash RGB"]
-        N2 -- no --> N4
-        N3 --> N4["Remove peers silent<br/>for 10 s"]
-        N4 --> N5["Send own data + peers<br/>to host"]
-        N5 --> N6["Update OLED view"]
-        N6 --> N1
-    end
-
-    SH[("Shared: node state +<br/>message flags (mutex)")]
-    CORE0 -. writes .-> SH
-    CORE1 -. reads .-> SH
-```
+9. [Flow: overview](#9-flow-overview): simplified view of the whole firmware
 
 ---
 
@@ -703,4 +662,45 @@ flowchart TD
     T6 --> PRI
     T7 --> PRI
     B2 --> PRI
+```
+
+---
+
+## 9. Flow: overview
+
+A simplified view of the whole firmware: boot, then two tasks running in parallel, one per core. They share the node's own state (`myself`) and the pending message flags, both protected by mutexes.
+
+```mermaid
+flowchart TD
+    A([Power on]) --> B["Initialise peripherals<br/>RGB LED, host UART, OLED,<br/>SD card, GPS, IMU, LoRa"]
+    B --> C["Load node ID and fleet ID<br/>from SD card config"]
+    C --> D{"Boot errors?"}
+    D -- yes --> E["Show errors on OLED,<br/>RGB red"] --> F
+    D -- no --> F["Start two FreeRTOS tasks"]
+    F --> S1
+    F --> N1
+
+    subgraph CORE0["Core 0: Sensing task"]
+        direction TB
+        S1["Read GPS<br/>time, position, course"] --> S2["Fuse GPS + IMU speed<br/>(Kalman filter)"]
+        S2 --> S3["Detect road events<br/>accident, terrain, potholes"]
+        S3 --> S4["Read status, tasks, battery<br/>from host"]
+        S4 --> S5["Write node state,<br/>raise message flags"]
+        S5 --> S1
+    end
+
+    subgraph CORE1["Core 1: Network task"]
+        direction TB
+        N1["Receive peer packets (LoRa)<br/>update cluster, back off"] --> N2{"Beacon due and<br/>channel free?"}
+        N2 -- yes --> N3["Broadcast own packet +<br/>top-priority message,<br/>flash RGB"]
+        N2 -- no --> N4
+        N3 --> N4["Remove peers silent<br/>for 10 s"]
+        N4 --> N5["Send own data + peers<br/>to host"]
+        N5 --> N6["Update OLED view"]
+        N6 --> N1
+    end
+
+    SH[("Shared: node state +<br/>message flags (mutex)")]
+    CORE0 -. writes .-> SH
+    CORE1 -. reads .-> SH
 ```
