@@ -199,15 +199,15 @@
 #define LORA_SPI_FREQ 8E6       // 1E6 for breadboarding otherwise 8E6
 #define LORA_FREQ     433.2125E6  // Hz (433 MHz band)
 #define LORA_BW       125E3     // Hz
-#define LORA_SF       7         // 7 = low latency, 12 = max range
+#define LORA_SF       12        // 7 = low latency, 12 = max range
 #define LORA_CR       5         // denominator of 4/x
 #define LORA_SYNC     0x12      // private network
 #define LORA_TXPOWER  10        // dBm via PA_BOOST
 #define BEACON_INTVL  15000      // ms
 
-// MAC: random wait before Tx after an Rx (~4 x 72 ms airtime)
+// MAC: random wait before Tx after an Rx (~4 x 1483 ms airtime at SF12)
 #define BACKOFF_MIN_MS  0       // ms
-#define BACKOFF_MAX_MS  300     // ms
+#define BACKOFF_MAX_MS  6000    // ms
 
 // MAC: radio status, checked before Tx for a packet on air
 #define LORA_REG_MODEM_STAT  0x18    // RegModemStat address
