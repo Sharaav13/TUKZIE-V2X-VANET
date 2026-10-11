@@ -27,10 +27,15 @@ struct Storage {
   uint32_t lastSenseLog = 0;    // previous log of sensing
 
   /*
-    Setup SD Card module
+    Setup SD Card module and delete the log files (CONFIG_FILE is kept)
     Returns true if successful
   */
   bool init(void);
+
+  /*
+    Deletes the log files (CONFIG_FILE is kept), write() creates them again when first used
+  */
+  void deleteLogs(void);
 
   /*
     Reads "id,fleetId" from CONFIG_FILE into myself (skipped without an SD Card)

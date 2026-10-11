@@ -8,7 +8,7 @@
 #include "interpret.h"
 
 // Every node relies on this layout, so stop the build if the packet size changes
-static_assert(sizeof(Packet) == 31, "Packet must be 31 bytes: update both ends and the layout comment in vanet.h");
+static_assert(sizeof(Packet) == 35, "Packet must be 35 bytes: update both ends and the layout comment in vanet.h");
 
 
 //*************************************************************************************************************************************************
@@ -70,8 +70,11 @@ static int32_t toFixed(double value, double scale, int32_t min, int32_t max) {
 void Packet::pack(const Data &node) {
 
   // Header
+  dest = node.destId;
   src = node.id;
   fleetId = node.fleetId;
+  seq = node.seq;
+  rssi = node.srcRssi;
   message = node.message;
 
   // Payload (decimals scaled to whole numbers)
@@ -95,6 +98,8 @@ void Packet::unpack(Data &node) {
   // Header
   node.id = src;
   node.fleetId = fleetId;
+  node.seq = seq;
+  node.srcRssi = rssi;
   node.message = message;
 
   // Payload (scaled back to decimals)
@@ -176,6 +181,22 @@ uint8_t Cluster::removeStale(void) {
   return removed;
 }
 
+/*
+  Returns the average SNR (dB) of the last packet from each peer, 0 if there are no peers
+*/
+float Cluster::averageSnr(void) {
+
+  if (count == 0) {
+    return 0.0;
+  }
+
+  float sum = 0.0;
+  for (uint8_t i = 0; i < count; i++) {
+    sum += peerTable[i].snr;
+  }
+  return sum / count;
+}
+
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 // Vanet
 // ------------------------------------------------------------------------------------------------------------------------------------------------
@@ -248,7 +269,7 @@ bool Vanet::rx(void) {
 
 /*
   Reads the packet into rxBuffer and adds or refreshes the sender in the cluster
-  Ignores packets of the wrong size
+  Ignores packets of the wrong size, and packets addressed to another node
   (Do not use LoRa.parsePacket() here: the library has already read the packet)
 */
 void Vanet::readPacket(int size) {
@@ -258,10 +279,18 @@ void Vanet::readPacket(int size) {
     return;
   }
 
-  // Copy the received bytes into the packet
+  // Provision for destination based routing has been made:
+  // dest is the first byte, so it is checked before reading the rest of the packet
+  // Only packets for me (dest == my ID) or broadcasts (dest == 0) are read
   Packet pkt;
   uint8_t *bytes = (uint8_t *)&pkt;
-  for (uint8_t i = 0; i < sizeof(Packet); i++) {
+  bytes[0] = LoRa.read();
+  if ((pkt.dest != myself.id) && (pkt.dest != 0)) {
+    return;   // for another node (unread bytes are discarded by the radio)
+  }
+
+  // Copy the rest of the received bytes into the packet
+  for (uint8_t i = 1; i < sizeof(Packet); i++) {
     bytes[i] = LoRa.read();
   }
 
@@ -269,7 +298,7 @@ void Vanet::readPacket(int size) {
   clearBuffer();
   pkt.unpack(rxBuffer);
 
-  rxBuffer.rssi = LoRa.packetRssi();
+  rxBuffer.pktRssi = LoRa.packetRssi();
   rxBuffer.snr =  LoRa.packetSnr();
   rxBuffer.freqErr = LoRa.packetFrequencyError();
 
@@ -339,10 +368,14 @@ bool Vanet::beaconDue(void) {
 
 /*
   Broadcasts a node as a binary packet, then returns to Rx
-  node: the node to send (a copy of myself taken under myselfMutex)
+  node: the node to send (a copy of myself taken under myselfMutex), seq and srcRssi are filled in here
   Returns true if it was sent (false if the radio was busy)
 */
-bool Vanet::tx(const Data &node) {
+bool Vanet::tx(Data &node) {
+
+  // Link quality: this beacon's sequence number and my channel RSSI (read in Rx, before beginPacket() leaves it)
+  node.seq = txSeq + 1;     // wraps to 0 after 65535
+  node.srcRssi = (int8_t)toFixed(LoRa.rssi(), 1.0, -128, 127);
 
   // Node to binary
   Packet pkt;
@@ -352,9 +385,11 @@ bool Vanet::tx(const Data &node) {
     return false; // radio busy
   }
 
-  LoRa.write((const uint8_t *)&pkt, sizeof(Packet));    // send the packet's 31 bytes
+  LoRa.write((const uint8_t *)&pkt, sizeof(Packet));    // send the packet's 35 bytes
   LoRa.endPacket();                                     // waits until sent (~72 ms)
   lastTx = millis();
+  txSeq = node.seq;                                     // only counted once sent
+  txRssi = node.srcRssi;                                // as my peers received it
   lastMsg = node.message;
 
   // Back to Rx

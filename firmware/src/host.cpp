@@ -55,7 +55,8 @@ void Host::tx(const Data &me, Data table[], uint8_t size) {
 
 /*
   Receives and parses a packet from the host into myself
-  Packet: "$status,tasks,battery\n" (anything before the '$' is ignored)
+  Packet: "$status,tasks,battery,dest,message\n" (anything before the '$' is ignored)
+  message: 0 = none (leaves myself.message untouched), HOST_MSG = host message
   Returns true when a complete packet has been parsed
 */
 bool Host::rx(void) {
@@ -103,23 +104,35 @@ bool Host::rx(void) {
   rxLen = 0;    // ready for the next packet
 
   // sscanf %d needs int
-  int status, tasks;
+  int status, tasks, dest, message;
   float battery;
   int got = sscanf(rxBuffer,
   "%d,"                   // status
   "%d,"                   // tasks
-  "%f",                   // battery
+  "%f,"                   // battery
+  "%d,"                   // destination
+  "%d",                   // message
   &status,
   &tasks,
-  &battery);
+  &battery,
+  &dest,
+  &message);
 
-  if (got != 3) {
+  if (got != 5) {
     return false;
   }
 
   myself.status = (uint8_t)status;
   myself.tasks = (uint8_t)tasks;
   myself.battery = battery;
+  myself.destId = (byte)dest;
+
+  // Host message (HOST_MSG) is sent before every other code
+  // 0 (or any other code) leaves myself.message untouched, it is cleared once the beacon is sent
+  if (message == HOST_MSG) {
+    myself.message = HOST_MSG;
+  }
+
   lastRx = millis();
   return true;
 }

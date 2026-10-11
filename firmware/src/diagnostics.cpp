@@ -208,7 +208,7 @@ void loraDebug(uint8_t select) {
       while (LoRa.available()) {
         rxPkt += String((char)LoRa.read());
       }
-      myself.rssi = LoRa.packetRssi();
+      myself.pktRssi = LoRa.packetRssi();
       myself.snr = LoRa.packetSnr();
       myself.freqErr = LoRa.packetFrequencyError();
     }
@@ -223,7 +223,7 @@ void loraDebug(uint8_t select) {
         "%s\n",                   // received payload
         myself.date,
         myself.time, millis(),
-        myself.rssi, myself.snr, myself.freqErr,
+        myself.pktRssi, myself.snr, myself.freqErr,
         rxPkt.c_str());
       Serial.print(rxStr);
     }
@@ -262,8 +262,8 @@ String formatSensing(const Data &node) {
 /*
   Formats a VANET log line for LOG_FILE
   event: "RX" or "TX"
-  Line: ms,event,src,fleetId,<node>,rssi,snr
-  <node> is Data::toStr(): date,time,lat,lon,alt,speed,course,status,tasks,battery,message
+  Line: ms,event,src,fleetId,<node>,snr
+  <node> is Data::toStr(): date,time,lat,lon,alt,speed,course,status,tasks,battery,message,seq,srcRssi,pktRssi
 */
 String formatVanet(const char *event, const Data &node) {
 
@@ -271,9 +271,9 @@ String formatVanet(const char *event, const Data &node) {
   char head[48];
   snprintf(head, sizeof(head), "%lu,%s,%u,%u,", (unsigned long)millis(), event, node.id, node.fleetId);
 
-  // Link quality (0 for TX): ,rssi,snr
-  char tail[32];
-  snprintf(tail, sizeof(tail), ",%.1f,%.2f\n", node.rssi, node.snr);
+  // Link quality (pktRssi and snr are 0 for TX), seq and srcRssi are in <node>: ,snr
+  char tail[16];
+  snprintf(tail, sizeof(tail), ",%.2f\n", node.snr);
 
   return String(head) + node.toStr() + tail;
 }

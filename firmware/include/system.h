@@ -130,7 +130,8 @@
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 // Coded messages
-#define MSG_COUNT               5         // entries in codedMessages and msgFlags
+#define MSG_COUNT               6         // entries in codedMessages and msgFlags
+#define HOST_MSG                5         // message code set by the host, sent before every other code
 #define STATUS_COUNT            4         // entries in codedStatus
 
 // Accident
@@ -158,6 +159,13 @@
 #define SCREEN_WIDTH  128
 #define SCREEN_HEIGHT 64
 #define DISP_INTVL    1000  // ms between node view updates
+
+// Signal bars: average SNR of my peers (dB) at or above each level, below SNR_2_BARS => 1 bar
+// SF7 decodes down to about -7.5 dB, LoRa SNR tops out at about +10 dB
+#define SNR_5_BARS    5.0
+#define SNR_4_BARS    2.0
+#define SNR_3_BARS    -1.0
+#define SNR_2_BARS    -4.0
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 // SYSTEM LIGHTS - RGB LED (display.cpp)
@@ -248,9 +256,15 @@
 //*************************************************************************************************************************************************
 
 struct Data {
+    
+    // VANET
+    byte destId = 0;
+    byte srcId = 0;
+    uint16_t seq = 0;       // sequence number of the beacon (gaps = lost packets)
+    int8_t srcRssi = 0;     // sender's LoRa.rssi() (dBm) just before it sent
 
     // Network health
-    float rssi = 0.0;
+    float pktRssi = 0.0;    // dBm of the last packet received from this node (measured by the receiver)
     float snr = 0.0;
     float freqErr = 0.0;
 

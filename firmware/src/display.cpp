@@ -99,13 +99,41 @@ void OLED::refresh(void) {
 }
 
 /*
-  Node view: my speed, battery, status and location, my peers' IDs and the latest peer message
+  Signal bars for an average SNR (dB), from "||" (poor) to "|| || || || ||" (good)
+*/
+static String signalBars(float snr) {
+
+  uint8_t bars = 1;
+  if (snr >= SNR_5_BARS) {
+    bars = 5;
+  } else if (snr >= SNR_4_BARS) {
+    bars = 4;
+  } else if (snr >= SNR_3_BARS) {
+    bars = 3;
+  } else if (snr >= SNR_2_BARS) {
+    bars = 2;
+  }
+
+  String text = "||";
+  for (uint8_t i = 1; i < bars; i++) {
+    text += " ||";
+  }
+  return text;
+}
+
+/*
+  Node view: signal bars, my speed, battery, status and location, my peers' IDs and the latest peer message
   me: a copy of myself
 */
 void OLED::showNode(const Data &me) {
 
+  // Signal environment: average SNR of my peers as bars (none without peers)
+  String text = "Net: ";
+  text += (vanet.cluster.count == 0) ? String("No signal") : signalBars(vanet.cluster.averageSnr());
+  text += "\n";
+
   // Speed, battery and status (21 characters per line), e.g. "45kmph 85% Delivering"
-  String text = String(me.speed, 0) + "kmph ";
+  text += String(me.speed, 0) + "kmph ";
   text += host.present() ? String(me.battery, 0) + "% " : String("--% ");   // battery is unknown without a host
   text += (me.status < STATUS_COUNT) ? codedStatus[me.status] : "Unknown";   // codes outside codedStatus show as Unknown
   text += "\n";

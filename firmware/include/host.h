@@ -40,7 +40,8 @@ struct Host {
 
   /*
     Receives and parses a packet from the host into myself
-    Packet: "$status,tasks,battery\n" (anything before the '$' is ignored)
+    Packet: "$status,tasks,battery,dest,message\n" (anything before the '$' is ignored)
+    message: 0 = none (leaves myself.message untouched), HOST_MSG = host message
     Returns true when a complete packet has been parsed
   */
   bool rx(void);

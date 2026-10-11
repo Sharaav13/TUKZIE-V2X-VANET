@@ -13,11 +13,13 @@
 //*************************************************************************************************************************************************
 
 /*
-  LoRa packet: 31 bytes of binary, always broadcast
+  LoRa packet: 35 bytes of binary, to one node (dest = its ID) or broadcast (dest = 0)
   Tx: pack() from a node | Rx: unpack() into a node
 
-  | src | fleet ID | message | date | time | lat | lon | alt | speed | course | status | tasks | battery |
-     1       1          1        4      4     4     4     4      2       2        1       1        2     bytes
+  | dest | src | fleet ID | seq | rssi | message | date | time | lat | lon | alt | speed | course | status | tasks | battery |
+     1      1       1        2     1       1        4      4     4     4     4      2       2        1       1        2     bytes
+
+  seq: sender's beacon count (gaps = lost packets) | rssi: sender's LoRa.rssi() (dBm) just before it sent
 
   Decimals are sent as whole numbers: lat/lon x 10^7, alt/speed/course x 10, battery x 100
   packed: no gaps, so the bytes on air match this layout
@@ -25,8 +27,11 @@
 struct __attribute__((packed)) Packet {
 
   // Header
+  uint8_t dest;         // destination ID, 0 = broadcast (must stay first: readPacket() checks it before reading the rest)
   uint8_t src;          // sender ID
   uint8_t fleetId;
+  uint16_t seq;         // sequence number, increments on every Tx (wraps at 65535)
+  int8_t rssi;          // sender's LoRa.rssi() (dBm) just before it sent
   uint8_t message;      // message code
 
   // Payload
@@ -78,6 +83,11 @@ struct Cluster {
     Returns the number removed
   */
   uint8_t removeStale(void);
+
+  /*
+    Returns the average SNR (dB) of the last packet from each peer, 0 if there are no peers
+  */
+  float averageSnr(void);
 };
 
 /*
@@ -108,6 +118,10 @@ struct Vanet {
   // Message in my last beacon sent (for the host)
   uint8_t lastMsg = 0;
 
+  // Link quality
+  uint16_t txSeq = 0;           // sequence number of my last beacon sent
+  int8_t txRssi = 0;            // my LoRa.rssi() (dBm) sent in my last beacon
+
   // Timestamps (ms)
   uint32_t lastTx = 0;          // previous VANET transmission
 
@@ -135,7 +149,7 @@ struct Vanet {
 
   /*
     Reads the packet into rxBuffer and adds or refreshes the sender in the cluster
-    Ignores packets of the wrong size
+    Ignores packets of the wrong size, and packets addressed to another node
     (Do not use LoRa.parsePacket() here: the library has already read the packet)
   */
   void readPacket(int size);
@@ -168,10 +182,10 @@ struct Vanet {
 
   /*
     Broadcasts a node as a binary packet, then returns to Rx
-    node: the node to send (a copy of myself taken under myselfMutex)
+    node: the node to send (a copy of myself taken under myselfMutex), seq and srcRssi are filled in here
     Returns true if it was sent (false if the radio was busy)
   */
-  bool tx(const Data &node);
+  bool tx(Data &node);
 };
 
 //*************************************************************************************************************************************************

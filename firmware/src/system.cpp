@@ -6,12 +6,12 @@
 /*
 STRUCTURE OF MESSAGES:
 
-VANET network (binary Packet, 31 bytes, broadcast only, see vanet.h):
-    TX/RX = | src | fleet ID | message | date | time | lat | lon | alt | speed | course | status | tasks | battery |
+VANET network (binary Packet, 35 bytes, dest = node ID or 0 for broadcast, see vanet.h):
+    TX/RX = | dest | src | fleet ID | seq | rssi | message | date | time | lat | lon | alt | speed | course | status | tasks | battery |
 
 Host (text, each packet "$...\n"):
     TX = $<node> per node, myself first then the cluster peers (<node> = Data::toStr())
-    RX = $status,tasks,battery
+    RX = $status,tasks,battery,dest,message
 */
 
 #include "system.h"
@@ -58,7 +58,7 @@ void reportError(const char *text) {
   Converts the node into a single CSV string
 */
 String Data::toStr(void) const {
-    char result[128];
+    char result[160];
     snprintf(result, sizeof(result),
     "%06" PRIu32 ","        // date (DDMMYY)
     "%08" PRIu32 ","        // time (HHMMSSCC)
@@ -70,7 +70,10 @@ String Data::toStr(void) const {
     "%d,"                   // status
     "%d,"                   // pending tasks
     "%.2f,"                 // battery percentage
-    "%d",                   // message code
+    "%d,"                   // message code
+    "%u,"                   // sequence number
+    "%d,"                   // srcRssi (dBm, this node's LoRa.rssi() when it sent)
+    "%.1f",                 // pktRssi (dBm, how well I hear this node)
     date,
     time,
     lat, lon, alt,
@@ -78,6 +81,9 @@ String Data::toStr(void) const {
     status,
     tasks,
     battery,
-    message);
+    message,
+    seq,
+    srcRssi,
+    pktRssi);
     return String(result);
 }

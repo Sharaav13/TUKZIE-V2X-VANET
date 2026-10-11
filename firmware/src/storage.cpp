@@ -21,7 +21,7 @@ Storage storage;
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
-  Setup SD Card module
+  Setup SD Card module and delete the log files (CONFIG_FILE is kept)
   Returns true if successful
 */
 bool Storage::init(void) {
@@ -30,10 +30,25 @@ bool Storage::init(void) {
 
   if (SD.begin(SD_CS, spi)) {
     ok = true;
+    deleteLogs();     // fresh logs every boot
     return true;
   } else {
     reportError("SD: card not detected or failed to mount\n");
     return false;
+  }
+}
+
+/*
+  Deletes the log files (CONFIG_FILE is kept), write() creates them again when first used
+*/
+void Storage::deleteLogs(void) {
+
+  const char *logs[] = {SENSE_FILE, NODE_FILE, LOG_FILE, DEBUG_FILE};
+
+  for (const char *file : logs) {
+    if (SD.exists(file) && !SD.remove(file)) {
+      reportError("SD: failed to delete a log file\n");
+    }
   }
 }
 

@@ -126,22 +126,7 @@ void sensingLoop(void *param) {
   Core 1: VANET Rx/Tx, cluster, OLED node view and SD Card logs
 */
 void networkLoop(void *param) {
-  Serial.println("TRACE: networkLoop running");    // TEMP TX TRACE
   for (;;) {
-
-    // TEMP TX TRACE: once a second, what is holding a beacon back
-    static uint32_t lastTrace = 0;
-    if (millis() - lastTrace >= 1000) {
-      lastTrace = millis();
-      if (!vanetReady) {
-        Serial.println("TRACE: LoRa not ready, no beacons");
-      } else {
-        Serial.printf("TRACE: %lu ms since Tx, backoff %d, modem stat 0x%02X (busy if & 0x0B), rxFlag %d, acc %.2f %.2f %.2f g, gyro %.0f %.0f %.0f dps\n",
-                      (unsigned long)(millis() - vanet.lastTx), (int)vanet.backoffActive(),
-                      LoRa.readRegister(LORA_REG_MODEM_STAT), (int)vanet.rxFlag,
-                      imu.acc[X_AXIS], imu.acc[Y_AXIS], imu.acc[Z_AXIS], imu.gyro[X_AXIS], imu.gyro[Y_AXIS], imu.gyro[Z_AXIS]);
-      }
-    }
 
     bool received = false;    // a valid packet was read this loop
 
@@ -153,23 +138,29 @@ void networkLoop(void *param) {
       // Log now: rxBuffer changes on the next rx()
       received = vanet.rx();
       if (received) {
-        //storage.write(formatVanet("RX", vanet.rxBuffer), LOG_FILE);
+        storage.write(formatVanet("RX", vanet.rxBuffer), LOG_FILE);
       }
 
-      // Tx: broadcast myself with the top pending message
+      // Tx: broadcast myself with the host message if set, otherwise the top pending message
       if (vanet.beaconDue()) {
         Data me = copyMyself();
-        me.message = sortMsg();
+        bool hostMsg = (me.message == HOST_MSG);
+        if (!hostMsg) {
+          me.message = sortMsg();   // other messages stay pending while the host message goes first
+        }
 
-        Serial.printf("TRACE: beacon due, sending (message %u)\n", me.message);    // TEMP TX TRACE
         bool sent = vanet.tx(me);
-        Serial.printf("TRACE: %s\n", sent ? "beacon sent, flashing" : "radio busy, not sent");    // TEMP TX TRACE
 
         if (sent) {
           lights.flash(msgColours[me.message]);   // colour of the message sent
-          //storage.write(formatVanet("TX", me), LOG_FILE);
-        } else if (me.message != 0) {
-          setMsgFlag(me.message);           // radio busy: retry next beacon
+          storage.write(formatVanet("TX", me), LOG_FILE);
+          if (hostMsg) {
+            xSemaphoreTake(myselfMutex, portMAX_DELAY);
+            myself.message = 0;             // host message sent once, cleared until the host sends it again
+            xSemaphoreGive(myselfMutex);
+          }
+        } else if ((me.message != 0) && !hostMsg) {
+          setMsgFlag(me.message);           // radio busy: retry next beacon (a host message is still in myself)
         }
       }
 
@@ -187,6 +178,8 @@ void networkLoop(void *param) {
     if (hostReady && (millis() - host.lastTx >= HOST_TX_INTVL)) {
       Data me = copyMyself();
       me.message = vanet.lastMsg;
+      me.seq = vanet.txSeq;         // sequence number of my last beacon
+      me.srcRssi = vanet.txRssi;    // my LoRa.rssi() sent in my last beacon
       host.tx(me, vanet.cluster.peerTable, vanet.cluster.count);
       host.lastTx = millis();
     }
@@ -202,13 +195,13 @@ void networkLoop(void *param) {
 
     // Log myself
     if (millis() - storage.lastNodeLog >= NODE_LOG_INTVL) {
-      //storage.write(formatMyself(copyMyself()), NODE_FILE);
+      storage.write(formatMyself(copyMyself()), NODE_FILE);
       storage.lastNodeLog = millis();
     }
 
     // Log sensing
     if (millis() - storage.lastSenseLog >= SENSE_LOG_INTVL) {
-      //storage.write(formatSensing(copyMyself()), SENSE_FILE);
+      storage.write(formatSensing(copyMyself()), SENSE_FILE);
       storage.lastSenseLog = millis();
     }
 
@@ -300,7 +293,6 @@ void setup() {
 
   xTaskCreatePinnedToCore(sensingLoop, "sensing", TASK_STACK, NULL, TASK_PRIORITY, &sensingTask, SENSING_CORE);
   xTaskCreatePinnedToCore(networkLoop, "network", TASK_STACK, NULL, TASK_PRIORITY, &networkTask, NETWORK_CORE);
-  Serial.println("TRACE: tasks started");    // TEMP TX TRACE
 }
 
 //*************************************************************************************************************************************************

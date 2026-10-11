@@ -92,8 +92,8 @@ String formatSensing(const Data &node);
 /*
   Formats a VANET log line for LOG_FILE
   event: "RX" or "TX"
-  Line: ms,event,src,fleetId,<node>,rssi,snr
-  <node> is Data::toStr(): date,time,lat,lon,alt,speed,course,status,tasks,battery,message
+  Line: ms,event,src,fleetId,<node>,snr
+  <node> is Data::toStr(): date,time,lat,lon,alt,speed,course,status,tasks,battery,message,seq,srcRssi,pktRssi
 */
 String formatVanet(const char *event, const Data &node);
 

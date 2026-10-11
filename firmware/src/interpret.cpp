@@ -11,23 +11,25 @@
 // GLOBAL VARIABLES
 //*************************************************************************************************************************************************
 
-// Coded messages (index = code, lower = higher priority)
+// Coded messages (index = code, lower = higher priority, except HOST_MSG which is always sent first)
 const char *const codedMessages[] = {
     "",                                                             // 0
     "Met with accident",                                            // 1
     "Low on battery",                                               // 2
     "Rough terrain is present",                                     // 3
     "Potholes are present",                                         // 4
+    "My host message",                                              // 5
 };
 static_assert(sizeof(codedMessages) / sizeof(codedMessages[0]) == MSG_COUNT, "codedMessages must have MSG_COUNT entries");
 
 // RGB colour flashed for each message on Tx (index = code)
 const uint8_t msgColours[] = {
-    BLUE,       // 0 none
+    GREEN,      // 0 none
     RED,        // 1 accident
     PURPLE,     // 2 low battery
     ORANGE,     // 3 rough terrain
-    YELLOW      // 4 potholes
+    YELLOW,     // 4 potholes
+    BLUE        // 5 host
 };
 static_assert(sizeof(msgColours) / sizeof(msgColours[0]) == MSG_COUNT, "msgColours must have MSG_COUNT entries");
 

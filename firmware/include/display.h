@@ -45,7 +45,7 @@ struct OLED {
   void refresh(void);
 
   /*
-    Node view: my speed, battery, status and location, my peers' IDs and the latest peer message
+    Node view: signal bars, my speed, battery, status and location, my peers' IDs and the latest peer message
     me: a copy of myself
   */
   void showNode(const Data &me);
