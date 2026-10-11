@@ -13,15 +13,15 @@
 //*************************************************************************************************************************************************
 
 /*
-  LoRa packet: 35 bytes of binary, to one node (dest = its ID) or broadcast (dest = 0)
+  LoRa packet: 25 bytes of binary, to one node (dest = its ID) or broadcast (dest = 0)
   Tx: pack() from a node | Rx: unpack() into a node
 
-  | dest | src | fleet ID | seq | rssi | message | date | time | lat | lon | alt | speed | course | status | tasks | battery |
-     1      1       1        2     1       1        4      4     4     4     4      2       2        1       1        2     bytes
+  | dest | src | seq | rssi | message | date | time | lat | lon | status | tasks | battery |
+     1      1     2     1       1        4      4     4     4      1       1        1     bytes
 
   seq: sender's beacon count (gaps = lost packets) | rssi: sender's LoRa.rssi() (dBm) just before it sent
 
-  Decimals are sent as whole numbers: lat/lon x 10^7, alt/speed/course x 10, battery x 100
+  Decimals are sent as whole numbers: lat/lon x 10^7
   packed: no gaps, so the bytes on air match this layout
 */
 struct __attribute__((packed)) Packet {
@@ -29,7 +29,6 @@ struct __attribute__((packed)) Packet {
   // Header
   uint8_t dest;         // destination ID, 0 = broadcast (must stay first: readPacket() checks it before reading the rest)
   uint8_t src;          // sender ID
-  uint8_t fleetId;
   uint16_t seq;         // sequence number, increments on every Tx (wraps at 65535)
   int8_t rssi;          // sender's LoRa.rssi() (dBm) just before it sent
   uint8_t message;      // message code
@@ -39,12 +38,9 @@ struct __attribute__((packed)) Packet {
   uint32_t time;        // HHMMSSCC
   int32_t lat;          // deg x 10^7
   int32_t lon;          // deg x 10^7
-  int32_t alt;          // m x 10
-  uint16_t speed;       // kmph x 10
-  uint16_t course;      // deg x 10
   uint8_t status;       // status code
   uint8_t tasks;        // pending tasks
-  uint16_t battery;     // % x 100
+  uint8_t battery;      // %
 
   /*
     Tx: fills the packet from a node

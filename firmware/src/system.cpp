@@ -6,8 +6,8 @@
 /*
 STRUCTURE OF MESSAGES:
 
-VANET network (binary Packet, 35 bytes, dest = node ID or 0 for broadcast, see vanet.h):
-    TX/RX = | dest | src | fleet ID | seq | rssi | message | date | time | lat | lon | alt | speed | course | status | tasks | battery |
+VANET network (binary Packet, 25 bytes, dest = node ID or 0 for broadcast, see vanet.h):
+    TX/RX = | dest | src | seq | rssi | message | date | time | lat | lon | status | tasks | battery |
 
 Host (text, each packet "$...\n"):
     TX = $<node> per node, myself first then the cluster peers (<node> = Data::toStr())
@@ -69,7 +69,7 @@ String Data::toStr(void) const {
     "%.1f,"                 // heading/course (deg bearing)
     "%d,"                   // status
     "%d,"                   // pending tasks
-    "%.2f,"                 // battery percentage
+    "%u,"                   // battery percentage
     "%d,"                   // message code
     "%u,"                   // sequence number
     "%d,"                   // srcRssi (dBm, this node's LoRa.rssi() when it sent)

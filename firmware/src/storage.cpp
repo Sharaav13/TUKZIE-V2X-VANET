@@ -53,7 +53,7 @@ void Storage::deleteLogs(void) {
 }
 
 /*
-  Reads "id,fleetId" from CONFIG_FILE into myself (skipped without an SD Card)
+  Reads the node ID from CONFIG_FILE into myself (skipped without an SD Card)
   Returns a summary, or an error message
 */
 String Storage::configNode(void) {
@@ -73,17 +73,16 @@ String Storage::configNode(void) {
   f.close();
   line.trim();                      // drops spaces and any trailing '\r'
 
-  // File format: "id,fleetId" e.g. "7,3"
-  int id, fleetId;                  // sscanf %d needs int, the Data fields are bytes
-  if (sscanf(line.c_str(), "%d,%d", &id, &fleetId) != 2) {
+  // File format: node ID, e.g. "7"
+  int id;                           // sscanf %d needs int, the Data field is a byte
+  if (sscanf(line.c_str(), "%d", &id) != 1) {
     reportError("SD: config parse failed.\n");
     return "SD: config parse failed.\n";
   }
 
   myself.id = id;
-  myself.fleetId = fleetId;
 
-  return "Config success.\nNode ID: " + String(myself.id) + "\nFleet ID: " + String(myself.fleetId);
+  return "Config success.\nNode ID: " + String(myself.id);
 }
 
 /*

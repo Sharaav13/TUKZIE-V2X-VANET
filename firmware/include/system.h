@@ -62,7 +62,7 @@
 #define SENSE_LOG_INTVL   1000            // ms between logs of sensing (SENSE_FILE)
 
 // SD Card files
-#define CONFIG_FILE       "/config.txt"         // "id,fleetId", e.g. "7,3"
+#define CONFIG_FILE       "/config.txt"         // node ID, e.g. "7"
 #define SENSE_FILE        "/sensing.txt"        // my GPS and IMU data
 #define NODE_FILE         "/node.txt"           // all my data
 #define LOG_FILE          "/log.txt"            // VANET Rx and Tx
@@ -197,13 +197,13 @@
 #define LORA_DIO0     21    // Pin 21, RxDone interrupt
 // LoRa radio
 #define LORA_SPI_FREQ 8E6       // 1E6 for breadboarding otherwise 8E6
-#define LORA_FREQ     433.6E6   // Hz (433 MHz band)
+#define LORA_FREQ     433.2125E6  // Hz (433 MHz band)
 #define LORA_BW       125E3     // Hz
 #define LORA_SF       7         // 7 = low latency, 12 = max range
 #define LORA_CR       5         // denominator of 4/x
 #define LORA_SYNC     0x12      // private network
 #define LORA_TXPOWER  10        // dBm via PA_BOOST
-#define BEACON_INTVL  2000      // ms
+#define BEACON_INTVL  15000      // ms
 
 // MAC: random wait before Tx after an Rx (~4 x 72 ms airtime)
 #define BACKOFF_MIN_MS  0       // ms
@@ -242,6 +242,7 @@
 #define DBG_LORA_TX   5     // LoRa transmit only
 #define DBG_LORA      6     // LoRa transmit and receive
 #define DBG_OLED      7     // OLED and Serial Monitor output
+#define DBG_SENSE     8     // GPS, IMU and speed fusion, logged to SENSE_FILE every second
 
 // Sampling and intervals (milliseconds)
 #define GPS_SAMPLING    1000
@@ -270,7 +271,6 @@ struct Data {
 
     // Node identification
     byte id = 0;
-    byte fleetId = 0;
 
     // Location
     float lat = 0.0;      // deg (+N/-S)
@@ -285,13 +285,12 @@ struct Data {
     float speed = 0.0;
     float course = 0.0;
 
-    // Fleet management
     uint8_t tasks = 0;      // number of pending tasks
     uint8_t status = 0;     // number coded (codedStatus)
     uint8_t message = 0;   // number coded (codedMessages)
 
     // Vehicle health
-    float battery = 100.0;
+    byte battery = 100;     // % (whole number, from the host)
 
     // Last updated time
     uint32_t date = 0;

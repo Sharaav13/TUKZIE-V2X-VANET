@@ -308,6 +308,7 @@ void loop() {
   //debug(DBG_SD_CARD);
   //debug(DBG_HOST);
   //debug(DBG_LORA);
+  //debug(DBG_SENSE);
 
   // Debug mode: keep looping
   if (debugMode) {

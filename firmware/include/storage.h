@@ -38,7 +38,7 @@ struct Storage {
   void deleteLogs(void);
 
   /*
-    Reads "id,fleetId" from CONFIG_FILE into myself (skipped without an SD Card)
+    Reads the node ID from CONFIG_FILE into myself (skipped without an SD Card)
     Returns a summary, or an error message
   */
   String configNode(void);

@@ -124,7 +124,7 @@ bool Host::rx(void) {
 
   myself.status = (uint8_t)status;
   myself.tasks = (uint8_t)tasks;
-  myself.battery = battery;
+  myself.battery = (byte)constrain(lroundf(battery), 0, 100);   // whole %, the host may send decimals
   myself.destId = (byte)dest;
 
   // Host message (HOST_MSG) is sent before every other code

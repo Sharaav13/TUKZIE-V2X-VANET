@@ -20,7 +20,7 @@
 
 /*
   Runs the debug routine of the selected peripheral
-  peripheral: DBG_OLED, DBG_SD_CARD, DBG_GPS, DBG_IMU, DBG_HOST, DBG_LORA_RX, DBG_LORA_TX or DBG_LORA
+  peripheral: DBG_OLED, DBG_SD_CARD, DBG_GPS, DBG_IMU, DBG_HOST, DBG_LORA_RX, DBG_LORA_TX, DBG_LORA or DBG_SENSE
 */
 void debug(uint8_t peripheral) {
 
@@ -48,6 +48,9 @@ void debug(uint8_t peripheral) {
       break;
     case DBG_LORA:
       loraDebug(2);
+      break;
+    case DBG_SENSE:
+      senseDebug();
       break;
   }
 }
@@ -125,6 +128,32 @@ void imuDebug(void) {
     imu.toStr(imu_str, sizeof(imu_str));
     Serial.println("IMU test: " + String(millis()) + "\n" + imu_str  + "\n");
     imu.lastSample = millis();
+  }
+}
+
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+// Sensing
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+
+/*
+  Runs the sensing (GPS, IMU and speed fusion) as sensingLoop() does, and writes a line to SENSE_FILE every
+  SENSE_LOG_INTVL (also shown on Serial)
+  Call every loop: the speed filter needs its 100 Hz IMU updates
+*/
+void senseDebug(void) {
+
+  // Kalman predict step at 100 Hz (reads the IMU)
+  speedFilter.update();
+
+  // GPS data and Kalman correct step, then the fused speed
+  gps.get();
+  myself.speed = speedFilter.getSpeed();
+
+  if ((millis() - storage.lastSenseLog) >= SENSE_LOG_INTVL) {
+    String line = formatSensing(myself);
+    storage.write(line, SENSE_FILE);
+    Serial.print(line);
+    storage.lastSenseLog = millis();
   }
 }
 
@@ -262,14 +291,14 @@ String formatSensing(const Data &node) {
 /*
   Formats a VANET log line for LOG_FILE
   event: "RX" or "TX"
-  Line: ms,event,src,fleetId,<node>,snr,freqErr
+  Line: ms,event,src,<node>,snr,freqErr
   <node> is Data::toStr(): date,time,lat,lon,alt,speed,course,status,tasks,battery,message,seq,srcRssi,pktRssi
 */
 String formatVanet(const char *event, const Data &node) {
 
-  // When, what and who: ms,event,src,fleetId,
+  // When, what and who: ms,event,src,
   char head[48];
-  snprintf(head, sizeof(head), "%lu,%s,%u,%u,", (unsigned long)millis(), event, node.id, node.fleetId);
+  snprintf(head, sizeof(head), "%lu,%s,%u,", (unsigned long)millis(), event, node.id);
 
   // Link quality (pktRssi, snr and freqErr are 0 for TX), seq and srcRssi are in <node>: ,snr,freqErr
   char tail[32];
@@ -280,10 +309,10 @@ String formatVanet(const char *event, const Data &node) {
 
 /*
   Formats all of a node's data for NODE_FILE or DEBUG_FILE
-  Line: ms,id,fleetId,<node>
+  Line: ms,id,<node>
 */
 String formatMyself(const Data &node) {
   char head[32];
-  snprintf(head, sizeof(head), "%lu,%u,%u,", (unsigned long)millis(), node.id, node.fleetId);
+  snprintf(head, sizeof(head), "%lu,%u,", (unsigned long)millis(), node.id);
   return String(head) + node.toStr() + "\n";
 }

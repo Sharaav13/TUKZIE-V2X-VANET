@@ -33,7 +33,6 @@ classDiagram
         +float snr
         +float freqErr
         +byte id
-        +byte fleetId
         +float lat
         +float lon
         +float alt
@@ -44,7 +43,7 @@ classDiagram
         +uint8_t tasks
         +uint8_t status
         +uint8_t message
-        +float battery
+        +byte battery
         +uint32_t date
         +uint32_t time
         +toStr() String
@@ -66,10 +65,9 @@ classDiagram
 
     %% ---------------- VANET (vanet.h / vanet.cpp) ----------------
     class Packet {
-        <<packed struct, 35 bytes>>
+        <<packed struct, 25 bytes>>
         +uint8_t dest
         +uint8_t src
-        +uint8_t fleetId
         +uint16_t seq
         +int8_t rssi
         +uint8_t message
@@ -77,12 +75,9 @@ classDiagram
         +uint32_t time
         +int32_t lat
         +int32_t lon
-        +int32_t alt
-        +uint16_t speed
-        +uint16_t course
         +uint8_t status
         +uint8_t tasks
-        +uint16_t battery
+        +uint8_t battery
         +pack(node) void
         +unpack(node) void
     }
@@ -349,7 +344,7 @@ classDiagram
     Interpret ..> Data : reads myself.battery
 
     Host ..> Data : writes status, tasks, battery, destId, message
-    Storage ..> Data : writes id, fleetId
+    Storage ..> Data : writes id
     Storage ..> SD
 
     OLED *-- Adafruit_SSD1306
@@ -403,14 +398,14 @@ sequenceDiagram
             V->>V: startBackoff() (0-300 ms random)
             V->>L: handleDio0Rise()
             L->>V: onLoraReceive(size) to readPacket(size)
-            V->>V: size == 35 and dest is me or 0: unpack, pktRssi/snr, cluster.update, peerMsg, log RX
+            V->>V: size == 25 and dest is me or 0: unpack, pktRssi/snr, cluster.update, peerMsg, log RX
         end
         N->>V: beaconDue()?
         alt interval elapsed, back-off over and channel free
             N->>M: copyMyself()
             N->>F: host message (5) if set, else sortMsg() (highest priority code, clears flag)
             N->>V: tx(me)
-            V->>L: seq + 1, srcRssi = LoRa.rssi(), beginPacket, write 35 bytes, endPacket, receive()
+            V->>L: seq + 1, srcRssi = LoRa.rssi(), beginPacket, write 25 bytes, endPacket, receive()
             N->>N: lights.flash(msgColours[code]), log TX, clear host message once sent
         end
         N->>V: cluster.removeStale() every 1 s
@@ -437,7 +432,7 @@ stateDiagram-v2
     BackingOff --> BackingOff : another packet received, back-off restarts
     BackingOff --> Listening : back-off elapsed
 
-    Listening --> CarrierSense : BEACON_INTVL (2 s) since lastTx
+    Listening --> CarrierSense : BEACON_INTVL (15 s) since lastTx
     CarrierSense --> Listening : receiving() RegModemStat & 0x0B, channel busy
     CarrierSense --> Transmitting : channel free
     Transmitting --> Listening : endPacket() (~72 ms), LoRa.receive(), lights.flash()
@@ -472,10 +467,10 @@ flowchart TD
     K2 --> K3["speedFilter.init(): roll/pitch from gravity, kalman.reset(0)"]
     K3 --> K4["showInit IMU"]
     K4 --> L["vanetReady = vanet.init()"]
-    L --> L1["HSPI + LoRa.begin 433.6 MHz, SF7, BW125k, CR4/5, sync 0x12, 10 dBm, CRC"]
+    L --> L1["HSPI + LoRa.begin 433.2125 MHz, SF7, BW125k, CR4/5, sync 0x12, 10 dBm, CRC"]
     L1 --> L2["Random first beacon offset, replace DIO0 ISR with loraDio0ISR, LoRa.receive()"]
     L2 --> L3["showInit LoRa"]
-    L3 --> M["storage.configNode(): /config.txt 'id,fleetId' into myself"]
+    L3 --> M["storage.configNode(): /config.txt node ID into myself"]
     M --> N{"errors.check?"}
     N -- yes --> N1["reportError('Setup: errors occurred during boot')"]
     N1 --> O
@@ -549,7 +544,7 @@ flowchart TD
     C1 -- no --> D
     C1 -- yes --> C2["rxFlag = false, startBackoff() random 0-300 ms"]
     C2 --> C3["LoRa.handleDio0Rise() then onLoraReceive(size) then readPacket(size)"]
-    C3 --> C4{"size == 35 bytes AND<br/>dest == my ID or 0?"}
+    C3 --> C4{"size == 25 bytes AND<br/>dest == my ID or 0?"}
     C4 -- no --> D
     C4 -- yes --> C5["Read bytes, Packet.unpack into rxBuffer, add pktRssi, snr, freqErr"]
     C5 --> C6["cluster.update(rxBuffer): add or refresh peer (max 3)"]
@@ -560,7 +555,7 @@ flowchart TD
     D{"vanet.beaconDue()?<br/>≥ 2 s since lastTx AND<br/>back-off over AND<br/>!receiving()"}
     D -- no --> G
     D -- yes --> E["me = copyMyself(), me.message = 5 if the host set it, else sortMsg()"]
-    E --> E1["vanet.tx(me): seq + 1, srcRssi = LoRa.rssi(), Packet.pack, beginPacket, write 35 B, endPacket, receive()"]
+    E --> E1["vanet.tx(me): seq + 1, srcRssi = LoRa.rssi(), Packet.pack, beginPacket, write 25 B, endPacket, receive()"]
     E1 --> E2{"Sent?"}
     E2 -- yes --> E3["lights.flash(msgColours[message]), 500 ms,<br/>log TX, clear the host message"]
     E2 -- no --> E4{"message != 0 AND not the host message?"}
@@ -684,7 +679,7 @@ A simplified view of the whole firmware: boot, then two tasks running in paralle
 ```mermaid
 flowchart TD
     A([Power on]) --> B["Initialise peripherals<br/>RGB LED, host UART, OLED,<br/>SD card, GPS, IMU, LoRa"]
-    B --> C["Load node ID and fleet ID<br/>from SD card config"]
+    B --> C["Load node ID<br/>from SD card config"]
     C --> D{"Boot errors?"}
     D -- yes --> E["Show errors on OLED,<br/>RGB red"] --> F
     D -- no --> F["Start two FreeRTOS tasks"]

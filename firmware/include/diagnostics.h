@@ -18,7 +18,7 @@
 
 /*
   Runs the debug routine of the selected peripheral
-  peripheral: DBG_OLED, DBG_SD_CARD, DBG_GPS, DBG_IMU, DBG_HOST, DBG_LORA_RX, DBG_LORA_TX or DBG_LORA
+  peripheral: DBG_OLED, DBG_SD_CARD, DBG_GPS, DBG_IMU, DBG_HOST, DBG_LORA_RX, DBG_LORA_TX, DBG_LORA or DBG_SENSE
 */
 void debug(uint8_t peripheral);
 
@@ -59,6 +59,17 @@ void gpsDebug(void);
 void imuDebug(void);
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
+// Sensing
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+
+/*
+  Runs the sensing (GPS, IMU and speed fusion) as sensingLoop() does, and writes a line to SENSE_FILE every
+  SENSE_LOG_INTVL (also shown on Serial)
+  Call every loop: the speed filter needs its 100 Hz IMU updates
+*/
+void senseDebug(void);
+
+// ------------------------------------------------------------------------------------------------------------------------------------------------
 // Host
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -92,14 +103,14 @@ String formatSensing(const Data &node);
 /*
   Formats a VANET log line for LOG_FILE
   event: "RX" or "TX"
-  Line: ms,event,src,fleetId,<node>,snr,freqErr
+  Line: ms,event,src,<node>,snr,freqErr
   <node> is Data::toStr(): date,time,lat,lon,alt,speed,course,status,tasks,battery,message,seq,srcRssi,pktRssi
 */
 String formatVanet(const char *event, const Data &node);
 
 /*
   Formats all of a node's data for NODE_FILE or DEBUG_FILE
-  Line: ms,id,fleetId,<node>
+  Line: ms,id,<node>
 */
 String formatMyself(const Data &node);
 

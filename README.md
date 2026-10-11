@@ -6,7 +6,7 @@ A vehicle-to-everything (V2X) vehicular ad hoc network (VANET) built on LoRa. Ea
 
 ## Features
 
-- **LoRa network:** 433 MHz, SF7, 35-byte binary beacons every 2 s, broadcast or addressed to one node (provision for destination-based routing), with a CSMA/CA-style MAC (carrier sense plus a random back-off after each received packet).
+- **LoRa network:** 433 MHz, SF7, 25-byte binary beacons every 15 s, broadcast or addressed to one node (provision for destination-based routing), with a CSMA/CA-style MAC (carrier sense plus a random back-off after each received packet).
 - **Link quality:** each beacon carries a sequence number (gaps = lost packets) and the sender's channel RSSI; the receiver also records the packet's RSSI and SNR.
 - **Cluster of peers:** up to 3 peers, refreshed on every packet and dropped after 10 s of silence.
 - **Sensor fusion:** GPS speed (1 Hz) and IMU acceleration (100 Hz) fused by a 2-state Kalman filter, with stop detection and zero-velocity updates.
@@ -47,9 +47,9 @@ All pins and settings are defined in [`include/system.h`](firmware/include/syste
 ## Getting started
 
 1. Install [PlatformIO](https://platformio.org/) (the VS Code extension or the CLI).
-2. Prepare a microSD card with `/config.txt` holding the node ID and fleet ID, e.g.:
+2. Prepare a microSD card with `/config.txt` holding the node ID (1 to 255), e.g.:
    ```
-   7,3
+   7
    ```
    Every node needs a unique ID.
 3. Build and flash from the `firmware` folder:
@@ -93,17 +93,17 @@ Detailed diagrams are in [`firmware/docs/firmware-diagrams.md`](firmware/docs/fi
 
 ## Protocols
 
-### LoRa packet (35 bytes)
+### LoRa packet (25 bytes)
 
-| dest | src | fleet ID | seq | rssi | message | date | time | lat | lon | alt | speed | course | status | tasks | battery |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 1 | 1 | 2 | 1 | 1 | 4 | 4 | 4 | 4 | 4 | 2 | 2 | 1 | 1 | 2 |
+| dest | src | seq | rssi | message | date | time | lat | lon | status | tasks | battery |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 1 | 2 | 1 | 1 | 4 | 4 | 4 | 4 | 1 | 1 | 1 |
 
 - `dest`: destination node ID, `0` = broadcast. A node only reads packets addressed to it or broadcast. A non-zero `dest` hides the sender from every other node's cluster.
 - `seq`: the sender's beacon count, incremented on every beacon sent (wraps at 65535). Gaps show lost packets.
 - `rssi`: the sender's `LoRa.rssi()` in dBm just before it sent, i.e. the channel noise level at the sender.
 
-Decimals are sent as scaled integers: lat/lon × 10⁷, alt/speed/course × 10, battery × 100. Date is `DDMMYY` and time is `HHMMSSCC`, both in SAST (UTC+2). Radio settings: 433.6 MHz, BW 125 kHz, SF7, CR 4/5, sync word `0x12`, 10 dBm, CRC on.
+Latitude and longitude are sent as scaled integers (× 10⁷), and battery as a whole percentage. Altitude, speed and course are not sent, so they read 0 for peers. Date is `DDMMYY` and time is `HHMMSSCC`, both in SAST (UTC+2). Radio settings: 433.2125 MHz, BW 125 kHz, SF7, CR 4/5, sync word `0x12`, 10 dBm, CRC on.
 
 ### Host link (UART2, text)
 

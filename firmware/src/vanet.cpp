@@ -8,7 +8,7 @@
 #include "interpret.h"
 
 // Every node relies on this layout, so stop the build if the packet size changes
-static_assert(sizeof(Packet) == 35, "Packet must be 35 bytes: update both ends and the layout comment in vanet.h");
+static_assert(sizeof(Packet) == 25, "Packet must be 25 bytes: update both ends and the layout comment in vanet.h");
 
 
 //*************************************************************************************************************************************************
@@ -72,7 +72,6 @@ void Packet::pack(const Data &node) {
   // Header
   dest = node.destId;
   src = node.id;
-  fleetId = node.fleetId;
   seq = node.seq;
   rssi = node.srcRssi;
   message = node.message;
@@ -82,12 +81,9 @@ void Packet::pack(const Data &node) {
   time = node.time;                                           // HHMMSSCC
   lat = toFixed(node.lat, 1e7, -900000000, 900000000);        // +-90 deg
   lon = toFixed(node.lon, 1e7, -1800000000, 1800000000);      // +-180 deg
-  alt = toFixed(node.alt, 10.0, -100000, 1000000);            // -10 km to 100 km
-  speed = toFixed(node.speed, 10.0, 0, 65535);                // 0 to 6553.5 kmph (uint16_t)
-  course = toFixed(node.course, 10.0, 0, 3600);               // 0 to 360.0 deg
   status = node.status;
   tasks = node.tasks;
-  battery = toFixed(node.battery, 100.0, 0, 10000);           // 0 to 100.00 %
+  battery = node.battery;                                     // 0 to 100 %
 }
 
 /*
@@ -97,7 +93,6 @@ void Packet::unpack(Data &node) {
 
   // Header
   node.id = src;
-  node.fleetId = fleetId;
   node.seq = seq;
   node.srcRssi = rssi;
   node.message = message;
@@ -107,12 +102,9 @@ void Packet::unpack(Data &node) {
   node.time = time;
   node.lat = (float)(lat / 1e7);    // divided as double to keep precision
   node.lon = (float)(lon / 1e7);
-  node.alt = alt / 10.0f;
-  node.speed = speed / 10.0f;
-  node.course = course / 10.0f;
   node.status = status;
   node.tasks = tasks;
-  node.battery = battery / 100.0f;
+  node.battery = battery;
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
@@ -385,8 +377,8 @@ bool Vanet::tx(Data &node) {
     return false; // radio busy
   }
 
-  LoRa.write((const uint8_t *)&pkt, sizeof(Packet));    // send the packet's 35 bytes
-  LoRa.endPacket();                                     // waits until sent (~72 ms)
+  LoRa.write((const uint8_t *)&pkt, sizeof(Packet));    // send the packet's 25 bytes
+  LoRa.endPacket();                                     // waits until sent (~62 ms at SF7)
   lastTx = millis();
   txSeq = node.seq;                                     // only counted once sent
   txRssi = node.srcRssi;                                // as my peers received it

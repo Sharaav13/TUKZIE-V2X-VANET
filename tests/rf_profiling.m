@@ -5,8 +5,8 @@
 %   log1.txt  log.txt from node 1
 %   log2.txt  log.txt from node 2
 %
-% Log line (formatVanet in diagnostics.cpp), 20 fields:
-%   ms,event,src,fleetId,date,time,lat,lon,alt,speed,course,status,tasks,battery,message,seq,srcRssi,pktRssi,snr,freqErr
+% Log line (formatVanet in diagnostics.cpp), 19 fields:
+%   ms,event,src,date,time,lat,lon,alt,speed,course,status,tasks,battery,message,seq,srcRssi,pktRssi,snr,freqErr
 %   TX lines: src = this node, seq = beacon sent | RX lines: src = sender, seq = sender's beacon
 %   srcRssi = sender's LoRa.rssi() just before it sent | pktRssi, snr, freqErr = measured by the receiver
 %
@@ -117,7 +117,7 @@ fprintf('Figures saved to %s\n', figDir);
 %% ------------------------------------------------------------------------------------------------
 
 function T = readVanetLog(file)
-% Reads a VANET log into a table (lines without exactly 20 fields are skipped)
+% Reads a VANET log into a table (lines without exactly 19 fields are skipped)
 
     if ~isfile(file)
         error('rf_profiling:missingLog', 'Log file not found: %s', file);
@@ -125,9 +125,9 @@ function T = readVanetLog(file)
 
     lines = strtrim(readlines(file));
     lines = lines(strlength(lines) > 0);
-    lines = lines(count(lines, ",") == 19);     % 20 fields: skips partial or old-format lines
+    lines = lines(count(lines, ",") == 18);     % 19 fields: skips partial or old-format lines
     if isempty(lines)
-        error('rf_profiling:emptyLog', 'No valid log lines in %s (expected 20 fields per line)', file);
+        error('rf_profiling:emptyLog', 'No valid log lines in %s (expected 19 fields per line)', file);
     end
 
     parts = split(lines, ",");
@@ -135,8 +135,8 @@ function T = readVanetLog(file)
         parts = parts.';                         % split returns a column for a single line
     end
 
-    T = table(double(parts(:, 1)), parts(:, 2), double(parts(:, 3)), double(parts(:, 16)), ...
-              double(parts(:, 17)), double(parts(:, 18)), double(parts(:, 19)), double(parts(:, 20)), ...
+    T = table(double(parts(:, 1)), parts(:, 2), double(parts(:, 3)), double(parts(:, 15)), ...
+              double(parts(:, 16)), double(parts(:, 17)), double(parts(:, 18)), double(parts(:, 19)), ...
               'VariableNames', {'ms', 'event', 'src', 'seq', 'srcRssi', 'pktRssi', 'snr', 'freqErr'});
 end
 

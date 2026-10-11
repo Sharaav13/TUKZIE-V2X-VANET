@@ -134,7 +134,7 @@ void OLED::showNode(const Data &me) {
 
   // Speed, battery and status (21 characters per line), e.g. "45kmph 85% Delivering"
   text += String(me.speed, 0) + "kmph ";
-  text += host.present() ? String(me.battery, 0) + "% " : String("--% ");   // battery is unknown without a host
+  text += host.present() ? String(me.battery) + "% " : String("--% ");   // battery is unknown without a host
   text += (me.status < STATUS_COUNT) ? codedStatus[me.status] : "Unknown";   // codes outside codedStatus show as Unknown
   text += "\n";
   text += "Lat: " + String(me.lat, 7) + "\n";
