@@ -262,7 +262,7 @@ String formatSensing(const Data &node) {
 /*
   Formats a VANET log line for LOG_FILE
   event: "RX" or "TX"
-  Line: ms,event,src,fleetId,<node>,snr
+  Line: ms,event,src,fleetId,<node>,snr,freqErr
   <node> is Data::toStr(): date,time,lat,lon,alt,speed,course,status,tasks,battery,message,seq,srcRssi,pktRssi
 */
 String formatVanet(const char *event, const Data &node) {
@@ -271,9 +271,9 @@ String formatVanet(const char *event, const Data &node) {
   char head[48];
   snprintf(head, sizeof(head), "%lu,%s,%u,%u,", (unsigned long)millis(), event, node.id, node.fleetId);
 
-  // Link quality (pktRssi and snr are 0 for TX), seq and srcRssi are in <node>: ,snr
-  char tail[16];
-  snprintf(tail, sizeof(tail), ",%.2f\n", node.snr);
+  // Link quality (pktRssi, snr and freqErr are 0 for TX), seq and srcRssi are in <node>: ,snr,freqErr
+  char tail[32];
+  snprintf(tail, sizeof(tail), ",%.2f,%.0f\n", node.snr, node.freqErr);
 
   return String(head) + node.toStr() + tail;
 }
