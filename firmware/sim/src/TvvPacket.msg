@@ -7,8 +7,8 @@ namespace lorav2v;
 // TVV VANET packet (firmware: struct Packet in include/vanet.h), after the dest byte.
 //
 // On air the firmware sends 25 bytes:
-//   | dest | src | seq | rssi | message | date | time | lat | lon | status | tasks | battery |
-//      1      1     2     1       1        4      4     4     4      1       1        1
+//   | dest | src | seq | ttl | message | date | time | lat | lon | status | tasks | battery |
+//      1      1     2     1      1        4      4     4     4      1       1        1
 //
 // FLoRa's radio needs its own MAC header (flora::LoRaMacFrame) at the front of every frame. TvvMac makes it
 // 1 byte long to stand for the dest byte, so this chunk is the other 24 bytes (TvvRouting.packetLength) and the
@@ -23,7 +23,7 @@ class TvvPacket extends inet::FieldsChunk
     uint8_t dest;           // destination ID, 0 = broadcast
     uint8_t src;            // sender ID
     uint16_t seq;           // sender's beacon count, increments on every Tx (wraps at 65535)
-    int8_t rssi;            // sender's LoRa.rssi() (dBm) just before it sent
+    uint8_t ttl;            // hops left: ttlInit when sent, decremented by each node that forwards it (not sent at 0)
     uint8_t messageCode;    // message code (firmware field "message", a reserved word in .msg files)
 
     // Payload
@@ -35,7 +35,7 @@ class TvvPacket extends inet::FieldsChunk
     uint8_t tasks;          // pending tasks
     uint8_t battery;        // %
 
-    // Simulation only (not part of the 25 bytes): delay and distance statistics
+    // Simulation only (not part of the 25 bytes): delay and distance statistics (the original sender's, kept when forwarded)
     omnetpp::simtime_t creationTime;
     double positionX;       // m, OMNeT++ playground coordinates
     double positionY;

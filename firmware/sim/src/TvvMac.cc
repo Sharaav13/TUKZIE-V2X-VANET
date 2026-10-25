@@ -16,6 +16,9 @@ simsignal_t TvvMac::channelAccessDelaySignal = registerSignal("channelAccessDela
 simsignal_t TvvMac::backoffDurationSignal = registerSignal("backoffDuration");
 simsignal_t TvvMac::txIntervalSignal = registerSignal("txInterval");
 simsignal_t TvvMac::radioDroppedPacketSignal = registerSignal("droppedPacket"); // emitted by flora::LoRaRadio
+simsignal_t TvvMac::rxLostSignal = registerSignal("rxLost");
+simsignal_t TvvMac::rxOkSignal = registerSignal("rxOk");
+simsignal_t TvvMac::frameSentSignal = registerSignal("frameSent");
 
 TvvMac::~TvvMac()
 {
@@ -36,6 +39,7 @@ void TvvMac::initialize(int stage)
         backoffMinMs = (int)std::round(par("backoffMin").doubleValue() * 1000);
         backoffMaxMs = (int)std::round(par("backoffMax").doubleValue() * 1000);
         pollInterval = par("pollInterval");
+        csDetectionTime = par("csDetectionTime");
 
         std::string carrierSense = par("carrierSense").stdstringValue();
         if (carrierSense == "preamble")
@@ -55,12 +59,14 @@ void TvvMac::initialize(int stage)
         if (beaconInterval < SimTime(1, SIMTIME_MS) || pollInterval <= SIMTIME_ZERO)
             throw cRuntimeError("beaconInterval must be >= 1 ms and pollInterval > 0");
 
-        beaconTimer = new cMessage("beaconDue");
+        beaconTimer = new cMessage("txDue");
 
         WATCH(state);
         WATCH(lastTx);
         WATCH(backoffEnd);
         WATCH(numSent);
+        WATCH(numForwarded);
+        WATCH(transmitting);
         WATCH(numReceived);
         WATCH(numRxLost);
         WATCH(numBackoffs);
@@ -79,13 +85,14 @@ void TvvMac::initialize(int stage)
         loRaRadio->loRaTP = txPowerDbm;
         loRaRadio->loRaUseHeader = true;
 
+        // Before subscribing: the radio's state signals (also from setRadioMode below) ask it for queued forwards
+        beaconSource = check_and_cast<ITvvBeaconSource *>(getModuleByPath(par("beaconSourceModule").stringValue()));
+
         cModule *radioModule = check_and_cast<cModule *>(radio.get());
         radioModule->subscribe(IRadio::receptionStateChangedSignal, this);
         radioModule->subscribe(IRadio::transmissionStateChangedSignal, this);
         radioModule->subscribe(radioDroppedPacketSignal, this);
         radio->setRadioMode(IRadio::RADIO_MODE_RECEIVER);   // LoRa.receive(): continuous Rx
-
-        beaconSource = check_and_cast<ITvvBeaconSource *>(getModuleByPath(par("beaconSourceModule").stringValue()));
 
         // init(): lastTx = millis() - random(0, BEACON_INTVL), random first beacon so nodes don't sync
         int intervalMs = (int)std::round(beaconInterval.dbl() * 1000);
@@ -98,6 +105,7 @@ void TvvMac::initialize(int stage)
 void TvvMac::finish()
 {
     recordScalar("numSent", numSent);
+    recordScalar("numForwarded", numForwarded);
     recordScalar("numReceived", numReceived);
     recordScalar("numRxLost", numRxLost);
     recordScalar("numBackoffs", numBackoffs);
@@ -121,7 +129,7 @@ void TvvMac::configureNetworkInterface()
 void TvvMac::refreshDisplay() const
 {
     static const char *stateNames[] = {"waiting", "channel?", "Tx"};
-    getDisplayString().setTagArg("t", 0, stateNames[state]);
+    getDisplayString().setTagArg("t", 0, transmitting && !transmittingBeacon ? "forwarding" : stateNames[state]);
 }
 
 // ------------------------------------------------------------------------------------------------------------------------
@@ -139,7 +147,7 @@ void TvvMac::handleSelfMessage(cMessage *msg)
     if (msg != beaconTimer)
         throw cRuntimeError("Unknown self message: %s", msg->getName());
 
-    // BEACON_INTVL has passed: the beacon is due from now on
+    // BEACON_INTVL has passed: a transmission (beacon or forward) is due from now on
     if (state == WAIT_INTERVAL) {
         state = WAIT_CHANNEL;
         dueTime = simTime();
@@ -151,6 +159,10 @@ void TvvMac::handleSelfMessage(cMessage *msg)
 
 void TvvMac::tryTransmit()
 {
+    // A beacon or forward is on air: asked again when it ends
+    if (transmitting)
+        return;
+
     // Still backing off after a received packet: ask again when it ends
     if (backoffActive()) {
         if (!blockedByBackoff) {
@@ -170,24 +182,54 @@ void TvvMac::tryTransmit()
         return;
     }
 
-    transmit();
+    // The slot is used: v2vLoop() checks forwardDue() before beaconDue(), so a queued forward takes it and the
+    // beacon waits for the next slot
+    state = TRANSMIT;
+    emit(channelAccessDelaySignal, simTime() - dueTime);
+    if (beaconSource->hasForward())
+        transmitForward();
+    else
+        transmit();
 }
 
 void TvvMac::transmit()
 {
-    state = TRANSMIT;
-
-    // networkLoop(): copyMyself(), then vanet.tx() packs and sends it
+    // v2vLoop(): copyMyself(), then vanet.tx() packs and sends it
     Packet *packet = beaconSource->createBeacon();
     take(packet);
-    encapsulate(packet);
+    numSent++;
 
-    emit(channelAccessDelaySignal, simTime() - dueTime);
+    transmittingBeacon = true;
+    sendFrame(packet);
+}
+
+void TvvMac::forwardQueued()
+{
+    Enter_Method("forwardQueued");
+
+    // Nothing to do: the forward waits for the next transmission slot (forwardDue() needs txDue())
+}
+
+void TvvMac::transmitForward()
+{
+    // vanet.forward(): the oldest queued packet, exactly as queued (ttl already decremented)
+    Packet *packet = beaconSource->takeForward();
+    take(packet);
+    numForwarded++;
+
+    transmittingBeacon = false;
+    sendFrame(packet);
+}
+
+void TvvMac::sendFrame(Packet *packet)
+{
     if (lastTxStart >= SIMTIME_ZERO)
         emit(txIntervalSignal, simTime() - lastTxStart);
     lastTxStart = simTime();
-    numSent++;
+    emit(frameSentSignal, transmittingBeacon ? 0 : 1);
 
+    encapsulate(packet);
+    transmitting = true;
     radio->setRadioMode(IRadio::RADIO_MODE_TRANSMITTER);
     sendDown(packet);
 }
@@ -248,9 +290,11 @@ bool TvvMac::receiving() const
 {
     // RECEIVING: the radio is decoding a frame above sensitivity (LoRaV2VReceiver), like RegModemStat
     // "signal detected / synchronised / header valid". BUSY: energy above energyDetection only.
+    // With csDetectionTime > 0 the frame is only seen once that much of its preamble has arrived, as the
+    // SX127x needs a few preamble symbols before it sets "signal detected"
     auto receptionState = radio->getReceptionState();
     if (receptionState == IRadio::RECEPTION_STATE_RECEIVING)
-        return true;
+        return simTime() - receptionStart >= csDetectionTime;
     return senseEnergy && receptionState == IRadio::RECEPTION_STATE_BUSY;
 }
 
@@ -258,6 +302,7 @@ void TvvMac::handleLowerPacket(Packet *packet)
 {
     // RxDone (CRC valid): rx() starts the back-off before reading the packet
     numReceived++;
+    emit(rxOkSignal, 1);
     startBackoff();
 
     auto header = packet->popAtFront<flora::LoRaMacFrame>();
@@ -272,8 +317,13 @@ void TvvMac::receiveSignal(cComponent *source, simsignal_t signalID, intval_t va
     Enter_Method("%s", cComponent::getSignalName(signalID));
 
     if (signalID == IRadio::receptionStateChangedSignal) {
-        // A pending beacon is checked again on the next networkLoop() pass
-        if (state == WAIT_CHANNEL && !receiving() && !beaconTimer->isScheduled())
+        bool nowReceiving = static_cast<IRadio::ReceptionState>(value) == IRadio::RECEPTION_STATE_RECEIVING;
+        if (nowReceiving && !wasReceiving)
+            receptionStart = simTime();
+        wasReceiving = nowReceiving;
+
+        // A due transmission is checked again on the next v2vLoop() pass
+        if (!transmitting && !receiving() && state == WAIT_CHANNEL && !beaconTimer->isScheduled())
             scheduleAfter(pollInterval, beaconTimer);
     }
     else if (signalID == IRadio::transmissionStateChangedSignal) {
@@ -281,8 +331,11 @@ void TvvMac::receiveSignal(cComponent *source, simsignal_t signalID, intval_t va
         bool endOfTransmission = transmissionState == IRadio::TRANSMISSION_STATE_TRANSMITTING && newState == IRadio::TRANSMISSION_STATE_IDLE;
         transmissionState = newState;
         if (endOfTransmission) {
-            // endPacket() returned: back to continuous Rx, lastTx = millis()
+            // endPacket() returned: back to continuous Rx
             radio->setRadioMode(IRadio::RADIO_MODE_RECEIVER);
+            transmitting = false;
+
+            // tx() and forward() both set lastTx = millis(): the next beacon or forward waits BEACON_INTVL
             lastTx = simTime();
             scheduleNextBeacon();
         }
@@ -290,6 +343,7 @@ void TvvMac::receiveSignal(cComponent *source, simsignal_t signalID, intval_t va
     else if (signalID == radioDroppedPacketSignal) {
         // RxDone with a CRC error (collision): DIO0 still fires, so the back-off still starts
         numRxLost++;
+        emit(rxLostSignal, 1);
         startBackoff();
     }
 }

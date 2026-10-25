@@ -1,0 +1,416 @@
+==========================================================================================================================
+TVV (TUKZIE V2X VANET) - SM/O1 - NODE DENSITY SWEEP (peer limit)
+==========================================================================================================================
+Simulation test SM/O1 of the report (Methodology): PDR, collisions, access delay, transmission interval,
+end-to-end delay and peer table of a cluster of 2, 5, 10, 20 and 40 TVV nodes, on the TVV OMNeT++ model
+after calibrating its channel to the field tests (tests/analysis.txt).
+
+Contents: 1 calibration, 2 configuration, 3 results, 4 interpretation, 5 limitations.
+
+
+1. CHANNEL CALIBRATION: HOW tests/analysis.txt WAS USED
+==========================================================================================================================
+
+(This section is the same in SMO1_results.txt and SMO2_results.txt.)
+
+1.1 Starting point (before)
+---------------------------
+The lora-v2v [General] channel (omnetpp.ini) was INET LogNormalShadowing with alpha = 3.5, sigma = 6 dB, referenced
+to free space at 1 m (25.18 dB at 433.2 MHz), isotropic antennas, no system loss, and FLoRa's receiver (decodes a
+frame received above its sensitivity table, -137 dBm at SF12/125 kHz, unless it collides). With 10 dBm that puts the
+50 % PDR point at about 3 km (two-node sweep, section 1.6). The real nodes lost contact at about 324 m.
+
+1.2 Measurements used
+---------------------
+Only the UCT RUGBY FIELD section of tests/analysis.txt (open field, nodes stationary at GPS-measured positions):
+
+  Run      PDR A->B   PDR B->A   Mean distance   Max received at
+  run 1      2.9 %     32.8 %       200.1 m          288.4 m
+  run 2      0.0 %     48.2 %       222.6 m          302.9 m
+  run 3      6.2 %     37.1 %       252.1 m          324.0 m
+  Overall    3.3 %     38.5 %       224.2 m          324.0 m
+  RSSI fit: RSSI = 37.09 e^(-0.05055 d) - 117.3 dBm      SNR fit: SNR = 31.59 e^(-0.01471 d) - 17.45 dB
+  PDR fit (both directions, 25-packet bins): PDR = 0.0009184 d^2 - 0.5476 d + 102.4 %
+
+The fits in analysis.txt pool both directions and only see received packets, so instead the channel was fitted to
+the raw per-packet logs behind them (tests/uct rugby field/run 1..3, vanet_log<n>.txt with the receivers' full
+logs and sensor_log<n>.txt GPS), extracted exactly as tests/test_analysis.m does (a sent beacon is matched to the
+receiver's RX line by seq; distance = sender's position in the packet to the receiver's nearest GPS fix, <= 5 s
+apart). The extraction reproduces analysis.txt (Bob -> Alice 62/189, 66/137, 63/170; Alice -> Bob 1/35, 0/23,
+2/32).
+
+  * Direction: Bob -> Alice only. Alice -> Bob delivered 3 of 90 beacons (3.3 %, none beyond 45 m) against 38.5 %
+    the other way, so Alice's transmit path is faulty and does not represent a typical node.
+  * Half duplex: 76 of Bob's 496 beacons overlapped one of Alice's own transmissions (PPS-timed TX start + time on
+    air on both nodes); only 3 of those were received. They were removed from the channel fit (lost for a MAC
+    reason, not a channel one), leaving 420 beacons, 188 received (44.8 %), at 1 to 332.4 m.
+  * Noise floor and received power: the RSSI fit's asymptote, -117.3 dBm, equals the 125 kHz thermal floor plus a
+    ~6 dB noise figure (-174 + 10 log10(125e3) + 6 = -117.0 dBm): beyond ~50 m the reported pktRssi is noise. The
+    received signal power was therefore taken as Pr = -117.3 dBm + SNR for every received packet.
+  * Link budget: Tx 10 dBm, 2 dBi antenna at each end, 0.14 dB cable loss at each end: PL(d) = 13.72 dBm - Pr(d).
+
+1.3 Fit
+-------
+A straight regression of Pr on log10(d) over received packets is biased at range: packets below the SF12
+demodulation limit (about -20 dB SNR) are never logged, so the far points over-represent lucky fades (a quick fit of
+the SNR curve gave PL = 100.2 + 19.8 log10 d, i.e. alpha ~ 2). Instead a censored (Tobit-type) maximum-likelihood
+fit was made over all 420 beacons, received and lost:
+
+  Pr(d) ~ Normal(P0 - 10 alpha log10(d / 1 m), sigma)               log-distance path loss + log-normal shadowing
+  P(decoded | Pr) = Phi((Pr - S) / tau)                              soft demodulation threshold S
+  received beacon:  density of its Pr x P(decoded | Pr)   (SNR >= 10 dB treated as ">= Pr", the SX127x saturates)
+  lost beacon:      P(not decoded) = Phi((S - mu(d)) / sqrt(sigma^2 + tau^2))
+
+Result (all four channel parameters and the threshold free):
+
+  P0 (Pr at 1 m)            -73.4 dBm      ->  PL(d) = 87.2 + 27.7 log10(d) dB (with antennas and cables)
+  alpha                      2.77          (likelihood profile: alpha = 2.0 is worse by 23.4 log-units, 2.5 by 2.5,
+                                            3.0 by 1.6, 3.5 by 12.5: approx. 95 % interval 2.55 to 3.05)
+  sigma (residual spread)    5.8 dB
+  S (demodulation limit)    -137.1 dBm     = SNR -19.8 dB over the -117.3 dBm floor
+  tau (threshold softness)   0.9 dB        (small: the threshold is effectively hard)
+
+  The quick estimate PL = 100.2 + 19.8 log10 d agrees at 100 m (139.8 vs 142.5 dB) but under-predicts the loss at
+  300 m by 6.5 dB, as expected from the truncation. The ~62-77 dB of excess loss over free space at 1-300 m is the
+  ground-level (antennas ~1 m, carried) open-field link; the fit is only meant for 10-330 m, not near 1 m.
+
+1.4 Values put in the model (firmware/sim/simulations/tvv.ini, [Config TvvFirmware], inherited by every Tvv config)
+---------------------------------------------------------------------------------------------------------------------
+  *.LoRaMedium.pathLoss.typename      LogNormalShadowing (unchanged)
+  *.LoRaMedium.pathLoss.alpha         3.5   ->  2.77
+  *.LoRaMedium.pathLoss.sigma         6 dB  ->  5.8 dB
+  *.LoRaMedium.pathLoss.systemLoss    0 dB  ->  58.3 dB
+      The model's antennas are isotropic with no cable loss, so the 2 x 2 dBi antennas and 2 x 0.14 dB cables are
+      folded in: systemLoss = 10 dBm - P0 - 25.18 dB (free space at 1 m, 433.2 MHz) = 10 + 73.4 - 25.2 = 58.3 dB.
+  Receiver sensitivity: FLoRa's SF12/125 kHz table value, -137 dBm, kept. It is what the fit found on its own
+      (-137.1 dBm), and the SX1278 datasheet figure; no change needed.
+  Noise floor: FLoRa uses the same -137 dBm as the noise in its SNIR, 19.7 dB below the real -117.3 dBm floor.
+      FLoRa never uses SNIR for the decode decision (only sensitivity and the 1 dB co-SF capture rule), so the
+      receptions are right, but the model's rxSnr reads ~20 dB high (node SNR ~ rxPower + 117.3 dB). Not changed.
+  Energy detection: -120 dBm ([General]) is only used by carrierSense = "energy" (TvvFirmwareEnergySense, not the
+      node); the firmware's preamble carrier sense uses the receiver's RECEIVING state, i.e. the -137 dBm
+      sensitivity. Not changed and not used in these sweeps.
+  routing.rxProcessingDelay = 25.5 ms (new parameter, added to the end-to-end delay statistics): the PPS-timed
+      Howard Centre packets give latency minus time on air of 24.36-25.00 ms (avg 24.64 ms, 7 packets) and
+      27.52-27.53 ms (avg 27.53 ms, 3 packets); the packet-weighted mean is 25.5 ms. It is the node's processing
+      between TxDone/RxDone and the timestamp, not channel time, so it does not change any MAC timing.
+
+1.5 Other checks against tests/analysis.txt
+-------------------------------------------
+  * Time on air: the model's LoRaV2VTransmitter uses the Semtech formula for the 25-byte frame (24 B TvvPacket + the
+    1 B header standing for dest), SF12, BW125, CR4/5, 8-symbol preamble, explicit header, CRC on, low data rate
+    optimisation on: preamble (8 + 4.25) x 32.768 ms = 401.4 ms, payload 33 symbols = 1081.3 ms, total 1482.75 ms
+    = the theoretical 1482.752 ms. The nodes measured 1482.979-1482.995 ms (TX start to TxDone), 0.23-0.24 ms
+    (0.016 %) longer, which is interrupt/timer latency on the node, not airtime. Confirmed: no change. The model's
+    direct end-to-end delay is 1482.75 + 25.5 = 1508.25 ms; measured TX start to RxDone 1507.34-1510.52 ms.
+  * Forwarding (SHD TEST): every anticipated forward was sent, exactly once, with ttl 1 (Alice's beacons forwarded
+    by Bob 7/7, Bob's by Alice 12/12, no unexpected forwards), and peer lists matched the RX lines. That is what
+    TvvRouting does (a packet addressed to another node is forwarded once with ttl - 1; broadcasts are not), so the
+    routing model needed no change.
+  * Not used: HOWARD CENTRE (indoor/undercover, multi-storey building), MENZIES STAIRCASE (through floors), TUKZIE
+    TEST and GW PARKING LOT (moving vehicles, terrain detection) and HELDERSIG STRAIGHT (GPS speed accuracy) are
+    not open-area stationary link measurements, so they are not relevant to these open-area cluster sweeps (only
+    Howard Centre's PPS latency was used, for the processing offset).
+  * Observed while extracting: in the rugby field runs Bob transmitted every 3.48 s (2 s interval + airtime) while
+    Alice transmitted every 16.5-20 s (15 s interval + airtime + back-off): the two nodes were running different
+    BEACON_INTVL settings. This does not affect the per-packet channel fit.
+
+1.6 Validation: two-node distance sweep (configs TvvValidation / TvvValidationUncalibrated)
+------------------------------------------------------------------------------------------
+Two stationary nodes D apart, firmware MAC (15 s slot, 0-6 s back-off), 5 seeds x 3600 s per distance,
+PDR = frames heard / beacons sent by the other node, both directions (about 2180 beacons per point), mean ± 95 % CI
+over the 10 node-runs. Measured = Bob -> Alice beacons not overlapping Alice's own Tx, in 25 m bins (n per bin);
+"sim" for a bin is the calibrated curve interpolated at each beacon's measured distance, averaged over the bin.
+
+  After calibration (alpha 2.77, sigma 5.8 dB, systemLoss 58.3 dB):
+
+   D (m)   sim PDR (%)     mean Pr (dBm)        Bin (m)    n    measured (%)   sim at those distances (%)
+     10   99.91 ± 0.14       -101.1             0-25      17       100.0             99.9
+     25   99.86 ± 0.16       -112.3             25-50     13       100.0             99.8
+     50   99.82 ± 0.17       -120.5             50-75     15       100.0             98.7
+     75   97.89 ± 0.88       -125.2             75-100    20        90.0             94.1
+    100   90.52 ± 1.57       -128.0             100-125   20        75.0             86.2
+    125   82.27 ± 1.92       -129.7             125-150   20        50.0             75.7
+    150   69.35 ± 1.50       -130.9             150-175   23        34.8             65.3
+    175   60.83 ± 1.46       -132.0             175-200   19        47.4             54.1
+    200   48.33 ± 2.21       -132.5             200-225   18        33.3             42.8
+    225   37.81 ± 2.53       -133.0             225-250   20        30.0             34.0
+    250   31.15 ± 2.98       -133.3             250-275   48        25.0             29.2
+    275   23.74 ± 1.56       -133.6             275-300   94        39.4             21.8
+    300   20.47 ± 1.43       -133.6             300-325   73        30.1             18.3
+    325   14.38 ± 1.23       -134.2             325-350   20         0.0             13.5
+    350   10.62 ± 1.11       -134.1
+    400    6.73 ± 0.98       -134.2             (mean Pr: of the received frames only)
+    500    2.38 ± 0.94       -135.1
+    700    0.28 ± 0.23       -134.9
+
+  Overall, at the measured distances: measured 44.8 % (188/420), calibrated model 44.4 %. Including the 76 beacons
+  lost to Alice's own transmissions: measured 38.5 %, model 37.6 %. Bin-by-bin RMS difference 13.4 percentage
+  points (bins of 13-94 packets, so a single bin's binomial 95 % CI is +-10 to +-27 points); the model is too
+  optimistic at 100-200 m and too pessimistic at 275-325 m, where the measured PDR plateaus at 25-40 % before
+  dropping to 0 of 20 beyond 325 m. A single log-distance slope cannot follow that shape (most likely ground
+  reflection/terrain along the field); the fit is a compromise weighted by where the packets were (215 of 420
+  beyond 250 m).
+
+  Range: the model gives 99.8 % PDR to 50 m, 90 % at 100 m, 50 % at ~195 m, 20 % at 300 m, 10 % at ~350 m and
+  < 3 % beyond 500 m; measured: 100 % to 75 m, 50 % at ~140 m, still 25-40 % at 250-325 m, last packet at 324.0 m.
+  The field only allowed 332 m separation, so 324 m is a lower bound on the real range, and the model's
+  10-20 % PDR at 300-350 m is consistent with "about 300 m".
+
+  Before calibration ([General]: alpha 3.5, sigma 6 dB, free space at 1 m):
+
+   D (m)   sim PDR (%)     mean Pr (dBm)
+    100   99.91 ± 0.14        -85.1
+    500   99.86 ± 0.16       -109.7
+   1000   99.77 ± 0.17       -120.1
+   2000   86.99 ± 1.40       -129.3
+   3000   49.45 ± 1.48       -132.3
+   4000   23.64 ± 2.21       -133.6
+   6000    5.08 ± 1.40       -134.6
+   9000    0.28 ± 0.23       -134.1
+
+  i.e. the 50 % point moved from ~3 km to ~0.2 km (15x), and the 99 % range from > 1 km to ~60 m.
+
+1.7 Cluster radius chosen from the calibration
+----------------------------------------------
+Both sweeps put the nodes in a disc of radius 25 m, so the largest separation is 50 m, where the calibrated
+two-node PDR is 99.8 %: every node hears every other, and the PDR losses in the sweeps come from the MAC
+(collisions, half duplex, busy receivers), not from range.
+
+
+2. CONFIGURATION
+==========================================================================================================================
+
+Test SM/O1, node density sweep (purpose: assess the peer limit). Configs in firmware/sim/simulations/tvv.ini:
+  SMO1             N = 2, 5, 10, 20, 40 nodes, firmware back-off (0-6000 ms), MAX_PEERS 3
+  SMO1BigCluster   the same with MAX_PEERS = 255 (unlimited), to see how many peers a node could hold
+  SMO1CsDetect     sensitivity: SMO1 with carrier sense seeing a frame only after 4 preamble symbols (131 ms)
+                   instead of at once (mac.csDetectionTime = 131ms; see section 5)
+All three extend TvvCluster -> TvvStatic -> TvvFirmware.
+
+Model and tools
+  * TVV model: firmware/sim (TvvMac, TvvRouting, TvvNode, simulations/TvvStatic.ned, simulations/tvv.ini) at repo
+    commit 139ea7a plus this session's uncommitted changes to firmware/sim (calibrated channel, stationary network,
+    traffic mix, warm-up-aware statistics, csDetectionTime), copied into ~/TVV/lora-v2v (WSL) and built
+    MODE=release. OMNeT++ 6.1, INET 4.5, FLoRa 1.2.0 (LoRaMedium, LoRaRadio, LoRaV2VReceiver/Transmitter);
+    Veins/SUMO not used (stationary nodes). Runs made 2026-10-25.
+  * Tables: firmware/sim/simulations/tvvstats.py (results/<config>-*.sca -> mean ± 95 % CI over seeds).
+  * Reproduce: see firmware/sim/README.md, "Stationary configs (no SUMO)".
+
+Firmware parameters (system.h values, unchanged unless swept)
+  LoRa 433.2125 MHz, SF12, BW 125 kHz, CR 4/5, 10 dBm, 8-symbol preamble, explicit header, CRC, LDRO;
+  25-byte frame, 1482.75 ms on air. BEACON_INTVL 15 s from the end of the previous Tx, shared by beacons and
+  forwards (a queued forward takes the slot). Back-off random(0, BACKOFF_MAX_MS) ms, restarted on every RxDone
+  (also CRC errors); BACKOFF_MAX_MS 6000. Carrier sense: no Tx while a LoRa frame is being received (preamble
+  sense). MAX_PEERS 3, PEER_TIMEOUT 30 s (checked every 1 s), DUP_WINDOW 90 s / DUP_HISTORY 48, TTL_INIT 2,
+  FWD_QUEUE_SIZE 2. Channel: calibrated (section 1.4). rxProcessingDelay 25.5 ms added to the delay statistics.
+
+Node layout
+  N nodes in a disc of radius 25 m (largest separation 50 m: calibrated PDR 99.8 %, so every node hears every
+  other), deterministic sunflower pattern: node i at r = 25 m x sqrt((i + 0.5)/N), angle i x 137.508 deg,
+  centred at (1350 m, 1550 m), height 0 m, stationary (INET StationaryMobility). Network TvvStatic, no buildings.
+
+Traffic
+  Every node beacons whenever its slot allows (the firmware always has a beacon to send). Each beacon is
+  addressed to a uniformly random other node with probability 0.1, otherwise broadcast
+  (routing.addressedFraction = 0.1: the report's 90 % broadcast / 10 % addressed assumption; no fleet data exists).
+  Every other node that hears an addressed beacon forwards it once (ttl 2 -> 1), as in the firmware and the SHD test.
+
+Seeds, time
+  10 repetitions per value (seed sets = OMNeT++ run numbers, all different), 3600 s simulated, the first 300 s
+  discarded (warmup-period), so 3300 s measured per run (~100-220 transmissions per node). "/ h" figures are
+  per hour of the measured period. Mean ± 95 % confidence interval over the 10 runs (Student t, 9 d.o.f.); each
+  run's value is first averaged (or summed) over its nodes. CI 0.000 = identical in every run.
+
+Metric definitions
+  PDR per receiver        frames heard straight from their sender (any dest) / (heard + gaps in each sender's
+                          seq), per receiving node, then averaged over nodes ("worst receiver": the lowest node).
+  Frames lost             all receivers' seq gaps / expected frames.
+  CRC errors              receptions that started (receiver locked on) but ended with a CRC error: the
+                          collisions the node itself would see as RxDone with a bad CRC. Frames lost because the
+                          receiver was transmitting (half duplex) or already locked onto another frame are lost
+                          silently: they are in "Frames lost" but not here.
+  Channel access delay    from the slot becoming due (15 s after the end of the previous Tx) to Tx start
+                          (waiting for the back-off and for the channel); mean over all transmissions, and max.
+  Tx interval             between consecutive Tx starts of a node (beacons and forwards); 16.48 s minimum.
+  Own beacon interval     measured period x N / own beacons sent (forwards take slots from beacons).
+  Forwards, % of frames   share of transmissions that were forwards.
+  E2E delay direct        original Tx start to RxDone + 25.5 ms, frames heard directly.
+  E2E delay forwarded     same, for every forwarded copy that reaches the node it is addressed to (before the
+    copy                  repeat check), i.e. the delay of the two-hop path; mean and max.
+  Forwarded copies at     forwarded copies reaching the destination per addressed beacon sent.
+    dest / addressed pkt
+  Delivered first via     addressed packets whose first copy at the destination was a forward (direct lost).
+    forward
+  Addressed delivered,    addressed beacons read at least once by their destination / addressed beacons sent.
+    unique
+  Addressed read again    copies read again because they arrived after the 90 s / 48-packet repeat check had
+    (dup leak)            forgotten the packet, per addressed beacon (duplicates passed to the application).
+  Peers in cluster        peer-table size, sampled every 1 s: mean over time and nodes, and the max.
+  Cluster full            beacons from a new peer rejected because the table already held MAX_PEERS.
+  Peers added / removed   peer-table turnover (removed = 30 s without a beacon heard directly).
+
+3. RESULTS (mean ± 95 % CI over 10 seeds)
+==========================================================================================================================
+
+3.1 SMO1: firmware (MAX_PEERS 3, back-off 0-6 s, carrier sense at once)
+------------------------------------------------------------------------
+metric                                                   N=2                   N=5                  N=10                  N=20                  N=40
+PDR per receiver (%)                             100.0 ± 0.0          99.97 ± 0.04          99.89 ± 0.13          99.79 ± 0.18          99.63 ± 0.42
+PDR worst receiver (%)                           100.0 ± 0.0          99.92 ± 0.07          99.86 ± 0.15          99.52 ± 0.25          99.39 ± 0.48
+Frames lost, of expected (%)                   0.000 ± 0.000         0.032 ± 0.045         0.110 ± 0.127         0.214 ± 0.176         0.366 ± 0.417
+CRC errors (collisions) / node / h             0.000 ± 0.000         0.000 ± 0.000         0.011 ± 0.025         0.055 ± 0.052         0.153 ± 0.115
+CRC errors, % of RxDone                        0.000 ± 0.000         0.000 ± 0.000         0.001 ± 0.002         0.004 ± 0.003         0.008 ± 0.006
+Channel access delay (s)                       0.001 ± 0.000         3.797 ± 0.047          11.72 ± 0.19          28.24 ± 0.16          60.32 ± 0.23
+Channel access delay max (s)                   0.203 ± 0.130          34.54 ± 3.25         95.10 ± 10.21          231.0 ± 13.6          477.1 ± 31.1
+Tx interval (s)                                 16.48 ± 0.00          20.28 ± 0.05          28.20 ± 0.19          44.72 ± 0.16          76.74 ± 0.21
+Tx interval max (s)                             16.69 ± 0.13          51.03 ± 3.25          111.6 ± 10.2          247.5 ± 13.6          493.6 ± 31.1
+Frames sent / node / h                           218.5 ± 0.2           177.6 ± 0.4           127.7 ± 0.9          80.52 ± 0.24          46.86 ± 0.14
+Forwards, % of frames                          0.000 ± 0.000          23.13 ± 1.47          46.24 ± 1.74          64.03 ± 2.22          75.68 ± 1.37
+Own beacon interval (s)                         16.48 ± 0.02          26.39 ± 0.52          52.54 ± 1.61           125.1 ± 7.1          317.6 ± 18.0
+E2E delay direct (s)                           1.508 ± 0.000         1.508 ± 0.000         1.508 ± 0.000         1.508 ± 0.000         1.508 ± 0.000
+E2E delay forwarded copy (s)                             n/a          13.31 ± 0.55          22.47 ± 0.86          46.76 ± 1.29          98.07 ± 3.29
+E2E delay forwarded copy max (s)                         n/a          44.77 ± 4.56          107.3 ± 14.2          254.7 ± 17.8          518.0 ± 71.6
+Forwarded copies at dest / addressed pkt         0.000 ± 0.000         2.985 ± 0.025         7.900 ± 0.043          16.86 ± 0.26          31.50 ± 0.63
+Delivered first via forward / node / h         0.000 ± 0.000         0.000 ± 0.000         0.196 ± 0.151         2.967 ± 0.180         2.992 ± 0.204
+Addressed delivered, unique (%)                  100.0 ± 0.0           100.0 ± 0.0          99.69 ± 0.46          99.82 ± 0.40           100.0 ± 0.0
+Addressed read again (dup leak) / addr pkt         0.000 ± 0.000         0.000 ± 0.000         0.026 ± 0.019         0.972 ± 0.051         2.656 ± 0.114
+Peers in cluster (mean)                        1.000 ± 0.000         2.561 ± 0.031         2.287 ± 0.055         2.017 ± 0.054         1.721 ± 0.071
+Peers in cluster (max)                         1.000 ± 0.000         3.000 ± 0.000         3.000 ± 0.000         3.000 ± 0.000         3.000 ± 0.000
+Cluster full / node / h                        0.000 ± 0.000          98.23 ± 5.11          247.4 ± 13.0          235.8 ± 28.9          186.4 ± 18.9
+Peers added / node / h                         0.000 ± 0.000           127.7 ± 5.4           190.5 ± 3.3           201.0 ± 4.7           185.6 ± 6.9
+Peers removed / node / h                       0.000 ± 0.000           128.0 ± 5.1           190.7 ± 3.5           201.1 ± 5.3           186.0 ± 7.7
+seeds                                                     10                    10                    10                    10                    10
+
+3.2 SMO1BigCluster: unlimited peer table (everything else as 3.1)
+------------------------------------------------------------------
+The MAC is unaffected by the peer table, so every channel and delay metric is identical to 3.1 (same seeds, same
+events); only the cluster rows differ:
+
+metric                                                   N=2                   N=5                  N=10                  N=20                  N=40
+Peers in cluster (mean)                        1.000 ± 0.000         3.187 ± 0.055         4.127 ± 0.145         3.883 ± 0.278         3.228 ± 0.206
+Peers in cluster (max)                         1.000 ± 0.000         4.000 ± 0.000         9.000 ± 0.000          12.80 ± 0.30          13.80 ± 1.00
+Cluster full / node / h                        0.000 ± 0.000         0.000 ± 0.000         0.000 ± 0.000         0.000 ± 0.000         0.000 ± 0.000
+Peers added / node / h                         0.000 ± 0.000           161.4 ± 6.8          348.1 ± 11.1          394.2 ± 25.2          350.2 ± 20.2
+Peers removed / node / h                       0.000 ± 0.000           161.7 ± 6.0          349.5 ± 11.3          393.6 ± 26.7          351.1 ± 21.7
+seeds                                                     10                    10                    10                    10                    10
+
+3.3 SMO1CsDetect: carrier sense needs 4 preamble symbols (131 ms) (sensitivity)
+-------------------------------------------------------------------------------
+metric                                                   N=2                   N=5                  N=10                  N=20                  N=40
+PDR per receiver (%)                             100.0 ± 0.0          92.64 ± 0.60          88.30 ± 0.89          80.90 ± 0.36          72.51 ± 1.13
+PDR worst receiver (%)                           100.0 ± 0.0          92.14 ± 0.64          87.41 ± 0.96          79.53 ± 0.30          70.20 ± 1.22
+Frames lost, of expected (%)                   0.000 ± 0.000         7.364 ± 0.601          11.70 ± 0.89          19.10 ± 0.36          27.49 ± 1.13
+CRC errors (collisions) / node / h             0.000 ± 0.000         2.444 ± 0.519         7.516 ± 0.814          18.54 ± 0.87          36.93 ± 1.13
+CRC errors, % of RxDone                        0.000 ± 0.000         0.361 ± 0.078         0.681 ± 0.076         1.256 ± 0.061         2.101 ± 0.067
+Channel access delay (s)                       0.001 ± 0.000         3.310 ± 0.070         9.695 ± 0.158          21.48 ± 0.24          41.60 ± 0.37
+Channel access delay max (s)                   0.203 ± 0.130          34.60 ± 4.20         82.79 ± 12.40          183.5 ± 19.9          341.6 ± 25.8
+Tx interval (s)                                 16.48 ± 0.00          19.79 ± 0.07          26.18 ± 0.16          37.97 ± 0.24          58.07 ± 0.39
+Tx interval max (s)                             16.69 ± 0.13          51.08 ± 4.20         99.27 ± 12.40          200.0 ± 19.9          358.1 ± 25.8
+Frames sent / node / h                           218.5 ± 0.2           181.9 ± 0.7           137.5 ± 0.8          94.73 ± 0.64          61.97 ± 0.41
+Forwards, % of frames                          0.000 ± 0.000          22.09 ± 1.27          40.92 ± 1.28          58.79 ± 1.80          68.94 ± 1.37
+Own beacon interval (s)                         16.48 ± 0.02          25.42 ± 0.42          44.37 ± 1.05          92.52 ± 4.11           187.8 ± 9.4
+E2E delay direct (s)                           1.508 ± 0.000         1.508 ± 0.000         1.508 ± 0.000         1.508 ± 0.000         1.508 ± 0.000
+E2E delay forwarded copy (s)                             n/a          12.72 ± 0.52          20.15 ± 0.49          37.00 ± 0.67          69.97 ± 1.45
+E2E delay forwarded copy max (s)                         n/a          37.27 ± 4.94         89.29 ± 11.24          206.2 ± 21.4          403.4 ± 40.0
+Forwarded copies at dest / addressed pkt         0.000 ± 0.000         2.598 ± 0.078         6.208 ± 0.153          11.06 ± 0.36          16.82 ± 0.74
+Delivered first via forward / node / h         0.000 ± 0.000         0.633 ± 0.349         0.927 ± 0.247         2.815 ± 0.167         3.071 ± 0.216
+Addressed delivered, unique (%)                  100.0 ± 0.0          98.19 ± 1.12          99.59 ± 0.65          99.72 ± 0.42          99.08 ± 0.77
+Addressed read again (dup leak) / addr pkt         0.000 ± 0.000         0.000 ± 0.000         0.005 ± 0.007         0.482 ± 0.043         1.417 ± 0.040
+Peers in cluster (mean)                        1.000 ± 0.000         2.531 ± 0.034         2.362 ± 0.021         2.131 ± 0.047         1.934 ± 0.048
+Peers in cluster (max)                         1.000 ± 0.000         3.000 ± 0.000         3.000 ± 0.000         3.000 ± 0.000         3.000 ± 0.000
+Cluster full / node / h                        0.000 ± 0.000          86.99 ± 4.86          267.2 ± 14.9          268.8 ± 21.0          241.4 ± 17.3
+Peers added / node / h                         0.000 ± 0.000           138.0 ± 7.3           194.9 ± 6.1           212.8 ± 4.7           208.2 ± 4.0
+Peers removed / node / h                       0.000 ± 0.000           138.2 ± 7.0           195.1 ± 6.3           213.6 ± 4.7           208.8 ± 4.3
+seeds                                                     10                    10                    10                    10                    10
+
+All 150 runs (3 configs x 5 values x 10 seeds) completed without errors. Every metric was produced; "n/a" means
+there was nothing to measure (no forwards with 2 nodes, where the only other node is always the destination).
+
+
+4. INTERPRETATION
+==========================================================================================================================
+
+PDR. With the firmware MAC as modelled (carrier sense sees a frame the moment it arrives), the cluster stays above
+the 95 % PDR spec (S/P5) at every density: 99.97 % at 5 nodes, 99.89 % at 10, 99.79 % at 20 and 99.63 % at 40,
+with the worst receiver at 99.4 %. The back-off restarted on every RxDone serialises the cluster: after each frame
+every node waits a fresh random 0-6 s, the earliest one transmits and everyone else then sees its preamble and
+backs off again. Collisions only happen when two back-offs end within the 1 ms loop period of each other, so CRC
+errors stay below 0.2 per node per hour even at 40 nodes.
+
+Access delay is what degrades, and it degrades from the start: the mean channel access delay grows roughly
+linearly with the number of nodes, about 1.5 s per node (3.8 s at 5, 11.7 s at 10, 28.2 s at 20, 60.3 s at 40;
+worst cases 35 s, 95 s, 231 s, 477 s). The channel is effectively a queue: each frame costs 1.48 s of airtime plus
+the winner's back-off, so the time between a node's transmissions rises from the 16.5 s minimum to 20 s (5), 28 s
+(10), 45 s (20) and 77 s (40), and the channel is ~77 % busy at 40 nodes (40 x 1.48 s every 77 s).
+
+Forwarding takes most of those slots. With 10 % of beacons addressed, every other node forwards each addressed
+beacon once (as the firmware does, also when the destination heard it directly), so each addressed beacon reaches
+its destination 3.0 / 7.9 / 16.9 / 31.5 more times as forwards at 5 / 10 / 20 / 40 nodes, and forwards are 23 / 46 /
+64 / 76 % of all transmissions. A node's own beacon then goes out only every 26 s (5), 53 s (10), 125 s (20) and
+318 s (40). Forwarded copies arrive 13-98 s after the original (worst 45-518 s); from 20 nodes up some arrive after
+the 90 s / 48-packet repeat check has forgotten the packet and are read again (about 1 extra copy per addressed
+packet at 20 nodes, 2.7 at 40). Addressed packets are still delivered (99.7-100 %), almost always directly.
+
+Degradation point. PDR does not set the limit in the ideal-sensing model; timeliness does. Between 5 and 10 nodes
+the own-beacon interval (26 s -> 53 s) passes PEER_TIMEOUT (30 s), so peers expire between two of their beacons:
+from 5 nodes up each node adds and drops 130-200 peers per hour. At 10 nodes a beacon (e.g. an accident or
+terrain message) waits 11.7 s on average and up to ~95 s for the channel. If carrier sense needs 4 preamble
+symbols (3.3, sensitivity), collisions dominate and PDR drops below the spec already at 5 nodes (92.6 %; 88.3 %
+at 10, 80.9 % at 20, 72.5 % at 40). So the cluster size at which the network degrades is about 5 nodes in both
+cases: delay and peer churn with ideal sensing, PDR as well if preamble detection is slow.
+
+Is the 3-peer limit justified? Mostly yes, as a memory/display limit, but it is not what limits the cluster:
+  * The peer table has no effect on the channel: every PDR, collision and delay figure is identical with an
+    unlimited table (3.2 vs 3.1).
+  * An unlimited table would not hold many more peers on average: 3.2 at 5 nodes, 4.1 at 10, 3.9 at 20 and 3.2 at
+    40 (max 4, 9, 12.8, 13.8), against 2.6, 2.3, 2.0 and 1.7 with the limit of 3. The 30 s PEER_TIMEOUT, shorter
+    than the own-beacon interval from 10 nodes up, is what empties the table, not MAX_PEERS.
+  * With 3 peers the table is full much of the time from 5 nodes up (100-250 new peers rejected per node per hour),
+    so the peers shown are whichever 3 happened to refresh first, and each table slot is replaced about once a minute.
+  * For a 2-node link the limit is never reached.
+  So MAX_PEERS = 3 costs about 1-2 peers per node on average against an unlimited table at 5-40 nodes, and is a
+  reasonable cap; what needs attention is PEER_TIMEOUT relative to the beacon interval the channel actually allows
+  (e.g. timeout >= 2-3 own-beacon intervals) and the forwarding load (forward only when the destination is not
+  heard directly, or cap forwards per packet), which inflates the own-beacon interval.
+
+
+5. LIMITATIONS
+==========================================================================================================================
+  * Calibration from one pair of nodes, at one site, on one day: the UCT rugby field, antennas at ground level
+    (~1 m, carried), 420 usable beacons in one direction. Other terrain, antenna heights (e.g. on a tuk-tuk roof),
+    vehicles and people around the nodes will change alpha, the reference loss and sigma.
+  * Asymmetric links: Alice -> Bob delivered 3.3 % against 38.5 % for Bob -> Alice, so only Bob -> Alice was used
+    and the model stands for a healthy node pair. If Alice's fault (likely its transmit path or antenna) exists
+    on other units, real PDR will be lower. The two nodes also ran different beacon intervals in that test (3.5 s
+    and 16.5 s).
+  * Model shape: a single log-distance slope with independent log-normal shadowing cannot follow the measured
+    plateau (25-40 % PDR from 250 to 325 m, then 0 of 20 beyond 325 m): the model is too optimistic at 100-200 m
+    (by up to 30 points per bin) and too pessimistic at 275-325 m. The field allowed only 332 m, so the measured
+    324 m is a lower bound on the range.
+  * Shadowing is drawn independently for every frame (INET LogNormalShadowing), with no spatial or temporal
+    correlation: in the model a weak link loses random frames, whereas a real obstructed link stays bad. sigma was
+    fitted under the same independence assumption.
+  * FLoRa's SNIR is not capped (a real SX127x saturates near +10 dB) and uses -137 dBm as noise, so rxSnr reads
+    ~20 dB above the node's SNR. It does not affect reception decisions (sensitivity + 1 dB capture), and SNR is
+    not a sweep metric.
+  * Buildings do not attenuate (the physicalEnvironment is only drawn). Irrelevant to these open-area clusters, but
+    the calibrated open-field channel now also applies to the SUMO/Erlangen Tvv configs, where it ignores
+    buildings.
+  * Carrier sense: in the baseline a frame counts as "being received" the moment it arrives above sensitivity;
+    the SX127x needs some preamble symbols first. This is the largest uncertainty in the PDR results (99.6-99.9 %
+    with instant sensing vs 72-93 % with 131 ms): the real figure lies between, and the detection time should be
+    measured.
+  * Collision model: FLoRa's (unchanged): same-SF capture at 1 dB, a frame is lost if overlapped (after its first
+    2 preamble symbols) by one not 1 dB weaker; the receiver stays locked on the first frame. No partial-SINR or
+    symbol-level model, no frequency-error effects (the measured frequency error is not modelled).
+  * Traffic: the 90 % broadcast / 10 % addressed mix with uniformly random destinations is the report's assumption
+    (no fleet data). Every node is saturated (always has a beacon due), as in the firmware. Host messages, SD-card
+    loop delays (pollInterval covers only the 1 ms loop) and GPS payload are not modelled.
+  * Stationary nodes in a 25 m disc: no mobility, so peer timeouts are caused only by the beacon interval, not by
+    nodes driving out of range; real clusters change membership as tuk-tuks move.
+  * Statistics: PDR from seq gaps does not count frames lost before the first or after the last frame heard from a
+    sender (negligible over 3300 s), and a sender never heard at all would not count (did not happen: every node
+    heard every other). The 25.5 ms processing offset is a constant from 10 PPS-timed indoor packets.
+  * Validation: the two-node sweep uses the firmware's 15 s slot, so half-duplex overlaps are rare; the field run had
+    Bob at a 3.5 s interval, and its overlap losses were removed before fitting.

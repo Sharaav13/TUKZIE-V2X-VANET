@@ -5232,7 +5232,7 @@
 		)
 		(uuid "ffefbef1-b872-4838-b3b7-5887334f6fba")
 	)
-	(label "NEO M8M ATGM336H"
+	(label "ATGM336H"
 		(at 16.51 81.28 0)
 		(effects
 			(font
@@ -6865,7 +6865,7 @@
 				(justify right)
 			)
 		)
-		(property "Value" "NEO-M8M-ATGM336H"
+		(property "Value" "ATGM336H"
 			(at 67.056 99.314 0)
 			(effects
 				(font

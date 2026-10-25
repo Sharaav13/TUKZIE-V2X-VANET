@@ -1,10 +1,10 @@
 //*************************************************************************************************************************************************
 // TUKZIE V2X VANET (TVV)
-// NODE FIRMWARE - OLED DISPLAY
+// NODE FIRMWARE - UI (OLED DISPLAY & RGB LED)
 //*************************************************************************************************************************************************
 
-#ifndef TVV_DISPLAY_H
-#define TVV_DISPLAY_H
+#ifndef TVV_UI_H
+#define TVV_UI_H
 
 #include "system.h"
 
@@ -58,6 +58,7 @@ struct SystemLights {
 
   // Status
   uint8_t colour = OFF;         // colour currently shown
+  uint8_t background = OFF;     // colour shown between flashes (NO_FIX_COLOUR without a GPS fix, else OFF)
   bool flashing = false;        // a flash is waiting to be turned off
 
   // Timestamps (ms)
@@ -71,17 +72,22 @@ struct SystemLights {
 
   /*
     Sets the RGB LED colour
-    colour: RED, ORANGE, YELLOW, GREEN, BLUE or PURPLE (anything else turns it off)
+    colour: RED, ORANGE, YELLOW, GREEN, BLUE, PURPLE or BRIGHTWHITE (anything else turns it off)
   */
   void toggle(uint8_t colour);
 
   /*
-    Shows a colour for FLASH_MS without blocking (update() turns it off)
+    Shows a colour for FLASH_MS without blocking (update() then returns to the background colour)
   */
   void flash(uint8_t colour);
 
   /*
-    Call every loop: ends a flash after FLASH_MS
+    Sets the colour shown between flashes, straight away unless a flash is on
+  */
+  void setBackground(uint8_t colour);
+
+  /*
+    Call every loop: ends a flash after FLASH_MS, back to the background colour
   */
   void update(void);
 };
@@ -93,4 +99,4 @@ struct SystemLights {
 extern OLED oled;
 extern SystemLights lights;
 
-#endif // TVV_DISPLAY_H
+#endif // TVV_UI_H

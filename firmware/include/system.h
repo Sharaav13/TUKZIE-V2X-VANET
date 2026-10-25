@@ -38,8 +38,8 @@
 #define SERIAL_BAUD   115200
 
 // FreeRTOS tasks
-#define SENSING_CORE  0     // GPS, IMU, host Rx
-#define NETWORK_CORE  1     // VANET Rx/Tx, host Tx, OLED, RGB, SD Card logging
+#define V2S_CORE      0     // GPS, IMU, host Rx
+#define V2V_CORE      1     // VANET Rx/Tx, host Tx, OLED, RGB, SD Card logging
 #define TASK_STACK    8192  // bytes per task
 #define TASK_PRIORITY 1
 
@@ -58,15 +58,17 @@
 #define SD_MOSI       11    // Pin 11
 #define SD_SCK        12    // Pin 12
 #define SD_MISO       13    // Pin 13
-#define NODE_LOG_INTVL    1000            // ms between logs of myself (NODE_FILE)
-#define SENSE_LOG_INTVL   1000            // ms between logs of sensing (SENSE_FILE)
+#define NODE_LOG_INTVL    1000            // ms between logs of myself (storage.myselfFile)
+#define SENSE_LOG_INTVL   1000            // ms between logs of sensing (storage.sensorFile)
 
 // SD Card files
 #define CONFIG_FILE       "/config.txt"         // node ID, e.g. "7"
-#define SENSE_FILE        "/sensing.txt"        // my GPS and IMU data
-#define NODE_FILE         "/node.txt"           // all my data
-#define LOG_FILE          "/log.txt"            // VANET Rx and Tx
 #define DEBUG_FILE        "/debug.txt"          // SD Card testing
+
+// SD Card logs, named with my node ID: prefix + ID + ".txt", e.g. "/vanet_log7.txt" (Storage::nameLogs)
+#define VANET_LOG         "/vanet_log"          // VANET Rx, Tx and forwards
+#define SENSOR_LOG        "/sensor_log"         // my GPS and IMU data
+#define MYSELF_LOG        "/myself_log"         // all my data
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 // IMU (sensing.cpp)
@@ -76,9 +78,9 @@
 #define IMU_I2C_SCL   9     // Pin 9
 
 // Conversions and thresholds
-#define ACC_MG_PER_LSB          0.061f
-#define GYRO_MDPS_PER_LSB       4.375f    // Check datasheet
-#define CALIBRATION_SAMPLES     1000.0    // Calibrating IMU
+#define ACC_MG_PER_LSB          0.244f    // +-8 g full scale (set in IMU::init, enableDefault() would leave +-2 g)
+#define GYRO_MDPS_PER_LSB       8.75f     // +-245 dps full scale (LSM6 enableDefault(): FS_G = 245 dps)
+#define CALIBRATION_SAMPLES     1000.0   // Calibrating IMU
 
 // imu.get() readings
 #define ACC           0
@@ -99,6 +101,14 @@
 #define SAST_OFFSET   2     // SAST = UTC + 2hr
 #define GPS_TIMEOUT   3000  // ms without data => GPS missing
 #define GPS_MAX_AGE   2000  // ms before a fix/speed is stale
+
+// PPS (UTC time base for packet latency, see UtcClock in sensing.h)
+#define GPS_PPS             16          // Pin 16, from 1PPS of GPS (rising edge = start of a UTC second)
+#define PPS_NMEA_MIN_US     20000       // µs, earliest a second's NMEA time arrives after its PPS edge
+#define PPS_NMEA_MAX_US     900000      // µs, latest (outside this window the pairing is skipped)
+#define PPS_LOCK_US         1500000     // µs since the last paired PPS edge => still locked (else holdover)
+#define PPS_MAX_RATE_ERR    200e-6      // largest accepted ESP32 clock error (200 ppm)
+#define DAY_US              86400000000LL   // µs in a day
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 // SPEED FUSION - KALMAN FILTER (sensing.cpp)
@@ -130,27 +140,25 @@
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 // Coded messages
-#define MSG_COUNT               6         // entries in codedMessages and msgFlags
-#define HOST_MSG                5         // message code set by the host, sent before every other code
+#define MSG_COUNT               5         // entries in codedMessages and msgFlags
+#define HOST_MSG                4         // message code set by the host, sent before every other code
 #define STATUS_COUNT            4         // entries in codedStatus
 
 // Accident
-#define FORCE_DURATION          10000     // ms of large force => accident
+#define TOPPLE_DURATION         10000     // ms on its side or upside down => accident
+#define ACCIDENT_G              7.0       // g, |a| (all axes, gravity included) at or above this => impact => accident
 #define UPSIDE_DOWN_G           -0.8      // g, raw Z at or below this => upside down (upright ~+1, upside down ~-1)
 #define SIDE_G                  0.8       // g, raw |X| or |Y| at or above this => on its side (upright ~0, on its side ~1)
-#define SPIN_DURATION           1000      // ms of spinning => accident
 
 // Terrain
-#define VIBR_G_THRESHOLD        0.8       // g, counts as a vibration
-#define VIBR_G_RELEASE          0.6       // g, drop below to count the next one (must be below VIBR_G_THRESHOLD)
-#define VIBR_INTERVAL_THRESHOLD 500       // ms counting window
-#define VIBR_CNT_THRESHOLD      3         // => rough terrain (fewer = pothole)
+#define TERRAIN_G               0.8       // g, |vertical acceleration - 1 g| at or above this => bad terrain (bump, pothole or rough surface)
+#define ROAD_MIN_SPEED          5.0       // kmph, bad terrain only while moving this fast (no false triggers when parked)
 
 // Battery
 #define LOW_BATTERY_THRESHOLD   50        // percent
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
-// OLED DISPLAY (display.cpp)
+// OLED DISPLAY (ui.cpp)
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 #define OLED_I2C_SDA  4     // Pin 4
@@ -161,20 +169,20 @@
 #define DISP_INTVL    1000  // ms between node view updates
 
 // Signal bars: average SNR of my peers (dB) at or above each level, below SNR_2_BARS => 1 bar
-// SF7 decodes down to about -7.5 dB, LoRa SNR tops out at about +10 dB
 #define SNR_5_BARS    5.0
 #define SNR_4_BARS    2.0
 #define SNR_3_BARS    -1.0
 #define SNR_2_BARS    -4.0
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
-// SYSTEM LIGHTS - RGB LED (display.cpp)
+// SYSTEM LIGHTS - RGB LED (ui.cpp)
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 #define RGB_LED_PIN   48    // Pin 48
 #define NUM_RGB_LEDS  1
 #define BRIGHTNESS    100   // (0-255)
 #define FLASH_MS      500   // ms a Tx flash stays on
+#define LIGHT_HOLD_MS 200   // ms a condition light (accident, low battery, bad terrain) stays on after it was last detected
 
 // Colours (lights.toggle)
 #define OFF           0
@@ -184,6 +192,9 @@
 #define GREEN         4
 #define BLUE          5
 #define PURPLE        6
+#define BRIGHTWHITE   7
+
+#define NO_FIX_COLOUR YELLOW // steady while there is no GPS fix (between Tx flashes), OFF to disable
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 // VANET (vanet.cpp)
@@ -203,7 +214,7 @@
 #define LORA_CR       5         // denominator of 4/x
 #define LORA_SYNC     0x12      // private network
 #define LORA_TXPOWER  10        // dBm via PA_BOOST
-#define BEACON_INTVL  15000      // ms
+#define BEACON_INTVL  15000     // ms between transmissions, shared by my beacons and forwards (keeps the duty cycle at 9.9 %)
 
 // MAC: random wait before Tx after an Rx (~4 x 1483 ms airtime at SF12)
 #define BACKOFF_MIN_MS  0       // ms
@@ -215,8 +226,18 @@
 
 // Cluster
 #define MAX_PEERS         3
-#define PEER_TIMEOUT      10000   // ms without hearing a peer => removed (out of range)
+#define PEER_TIMEOUT      30000   // ms without hearing a peer => removed (out of range)
 #define PEER_CHECK_INTVL  1000    // ms between checks for stale peers
+
+// Forwarding: a packet addressed to another node (not me, not broadcast) is sent on as received (against the hidden terminal problem)
+#define TTL_INIT          2       // hops a packet may make: each forward decrements it, at 0 it is not sent
+#define FWD_QUEUE_SIZE    2       // packets waiting to be forwarded (a full queue drops new ones)
+
+// Repeats: a packet (src, seq) already read is dropped, e.g. the forwarded copy of one received direct
+#define DUP_HISTORY       48      // recent packets remembered (covers DUP_WINDOW_MS of a full cluster's traffic)
+#define DUP_WINDOW_MS     90000   // ms a packet is remembered (longer than a forward can take to arrive: a queued
+                                  // forward may wait up to FWD_QUEUE_SIZE transmission slots of BEACON_INTVL, plus
+                                  // back-offs and channel-busy deferrals)
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 // HOST (host.cpp)
@@ -225,12 +246,13 @@
 #define HOST_RX       1     // Pin 1
 #define HOST_TX       2     // Pin 2
 #define HOST_BAUD     115200
-#define HOST_START    '$'   // first character of every host packet (both directions)
+#define HOST_START    '$'   // first character of every host packet (both directions), starts a burst in host Tx
+#define HOST_PEER     '#'   // first character of each peer packet in host Tx
 #define HOST_TX_INTVL 1000  // ms between sends of myself and the cluster
 #define HOST_TIMEOUT  10000 // ms without a valid host packet => host absent
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
-// DIAGNOSTICS (diagnostics.cpp)
+// DEBUGGING (debugging.cpp)
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 // debug() peripherals
@@ -241,16 +263,14 @@
 #define DBG_LORA_RX   4     // LoRa receive only
 #define DBG_LORA_TX   5     // LoRa transmit only
 #define DBG_LORA      6     // LoRa transmit and receive
-#define DBG_OLED      7     // OLED and Serial Monitor output
-#define DBG_SENSE     8     // GPS, IMU and speed fusion, logged to SENSE_FILE every second
+#define DBG_UI        7     // OLED, RGB LED and Serial Monitor output
 
 // Sampling and intervals (milliseconds)
 #define GPS_SAMPLING    1000
 #define IMU_SAMPLING    1000
 #define SD_READ_INTVL   2000
 #define SD_WRITE_INTVL  1000
-#define HOST_RX_INTVL   1000
-#define OLED_TEST_INTVL 1000
+#define UI_TEST_INTVL   1000  // ms between UI test messages, each with the next RGB colour
 
 //*************************************************************************************************************************************************
 // STRUCTURES
@@ -262,12 +282,18 @@ struct Data {
     byte destId = 0;
     byte srcId = 0;
     uint16_t seq = 0;       // sequence number of the beacon (gaps = lost packets)
-    int8_t srcRssi = 0;     // sender's LoRa.rssi() (dBm) just before it sent
+    uint8_t ttl = 0;        // hops left: TTL_INIT when sent, one less after each forward
+    int8_t srcRssi = 0;     // my LoRa.rssi() (dBm) just before I sent (my beacons only, not carried in packets: 0 for peers)
 
     // Network health
     float pktRssi = 0.0;    // dBm of the last packet received from this node (measured by the receiver)
     float snr = 0.0;
     float freqErr = 0.0;
+
+    // Packet timing (PPS UTC time base, for latency)
+    int64_t utc = 0;        // µs since UTC midnight: TX start (my beacon) or RxDone (a received packet)
+    uint32_t airUs = 0;     // µs from TX start to TX done (my beacon only)
+    uint8_t sync = 0;       // utc quality: 0 = not synced, 1 = PPS locked, 2 = holdover (PPS lost)
 
     // Node identification
     byte id = 0;

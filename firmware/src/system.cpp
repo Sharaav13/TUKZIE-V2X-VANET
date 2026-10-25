@@ -7,10 +7,11 @@
 STRUCTURE OF MESSAGES:
 
 VANET network (binary Packet, 25 bytes, dest = node ID or 0 for broadcast, see vanet.h):
-    TX/RX = | dest | src | seq | rssi | message | date | time | lat | lon | status | tasks | battery |
+    TX/RX = | dest | src | seq | ttl | message | date | time | lat | lon | status | tasks | battery |
+    A packet addressed to another node (not me, not broadcast) is forwarded as received, with ttl - 1 (not at 0)
 
 Host (text, each packet "$...\n"):
-    TX = $<node> per node, myself first then the cluster peers (<node> = Data::toStr())
+    TX = $id,<node> for myself, then #id,<node> per cluster peer (<node> = Data::toStr())
     RX = $status,tasks,battery,dest,message
 */
 
@@ -72,7 +73,7 @@ String Data::toStr(void) const {
     "%u,"                   // battery percentage
     "%d,"                   // message code
     "%u,"                   // sequence number
-    "%d,"                   // srcRssi (dBm, this node's LoRa.rssi() when it sent)
+    "%d,"                   // srcRssi (dBm, my LoRa.rssi() before my last beacon, 0 for peers: not carried in packets)
     "%.1f",                 // pktRssi (dBm, how well I hear this node)
     date,
     time,

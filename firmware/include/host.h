@@ -33,7 +33,7 @@ struct Host {
   bool init(void);
 
   /*
-    Transmits myself and a table of nodes to the host, one packet per node: "$<node>\n"
+    Transmits myself and a table of nodes to the host, one packet per node: "$id,<node>\n" then "#id,<node>\n" per peer
     me: a copy of myself
   */
   void tx(const Data &me, Data table[], uint8_t size);

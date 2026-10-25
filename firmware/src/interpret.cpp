@@ -15,21 +15,19 @@
 const char *const codedMessages[] = {
     "",                                                             // 0
     "Met with accident",                                            // 1
-    "Low on battery",                                               // 2
-    "Rough terrain is present",                                     // 3
-    "Potholes are present",                                         // 4
-    "My host message",                                              // 5
+    "Low battery",                                                  // 2
+    "Bad terrain",                                                  // 3
+    "Custom host message",                                          // 4
 };
 static_assert(sizeof(codedMessages) / sizeof(codedMessages[0]) == MSG_COUNT, "codedMessages must have MSG_COUNT entries");
 
-// RGB colour flashed for each message on Tx (index = code)
+// RGB colour of each message (index = code): Tx flash green (0) or blue (host), steady red/purple/orange while an accident/low battery/bad terrain is detected
 const uint8_t msgColours[] = {
     GREEN,      // 0 none
     RED,        // 1 accident
     PURPLE,     // 2 low battery
-    ORANGE,     // 3 rough terrain
-    YELLOW,     // 4 potholes
-    BLUE        // 5 host
+    ORANGE,     // 3 bad terrain
+    BLUE        // 4 host
 };
 static_assert(sizeof(msgColours) / sizeof(msgColours[0]) == MSG_COUNT, "msgColours must have MSG_COUNT entries");
 
@@ -48,17 +46,12 @@ static bool msgFlags[MSG_COUNT] = {false};
 // Protects msgFlags (set on both cores)
 SemaphoreHandle_t msgFlagsMutex = NULL;
 
-// Accident
-static bool force = false;
-static uint32_t forceStart;
-static bool spinning = false;
-static uint32_t spinStart;
+// When each condition was last detected (ms, index = message code, 0 = never): set on core 0, read on core 1
+static volatile uint32_t detectedAt[MSG_COUNT] = {0};
 
-// Terrain
-static bool vibration = false;     // a vibration window is open
-static bool aboveVibr = false;     // acc_z is currently above the vibration threshold
-static byte vibrationCount = 0;
-static uint32_t vibrationStart;
+// Accident
+static bool toppled = false;       // on its side or upside down
+static uint32_t toppleStart;
 
 //*************************************************************************************************************************************************
 // FUNCTIONS
@@ -69,87 +62,52 @@ static uint32_t vibrationStart;
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
-  Flags an accident from prolonged large force or spinning
+  Flags an accident from a sharp impact (ACCIDENT_G or more), or from lying on its side or upside down
+  for TOPPLE_DURATION
   Uses the latest imu.getAll() readings (no extra I2C reads)
 */
 void checkAccident(void) {
+
+  // Impact: a sharp acceleration of ACCIDENT_G or more in any direction (g, raw: gravity included)
+  float magnitude = sqrtf(imu.acc[X_AXIS] * imu.acc[X_AXIS] +
+                          imu.acc[Y_AXIS] * imu.acc[Y_AXIS] +
+                          imu.acc[Z_AXIS] * imu.acc[Z_AXIS]);
+  bool impact = (magnitude >= ACCIDENT_G);
 
   // On its side or upside down (g, raw: gravity included, z + = up), timed from when it starts
   if ((abs(imu.acc[X_AXIS]) >= SIDE_G) ||
       (abs(imu.acc[Y_AXIS]) >= SIDE_G) ||
       (imu.acc[Z_AXIS] <= UPSIDE_DOWN_G)) {
-    if (!force) {
-      forceStart = millis();
-      force = true;   // Experienced a large force
+    if (!toppled) {
+      toppleStart = millis();
+      toppled = true;
     }
   } else {
-    force = false;
+    toppled = false;
   }
 
-  // Determine if prolonged force is an accident
-  if (force) {
-    uint32_t forceDuration = millis() - forceStart;
-    if (forceDuration >= FORCE_DURATION) {
-      setMsgFlag(1);   // Met with accident
-    }
-  }
+  // Lying toppled for long enough is an accident
+  bool toppledTooLong = toppled && ((millis() - toppleStart) >= TOPPLE_DURATION);
 
-  // Spinning (dps), timed from when it starts
-  if ((abs(imu.gyro[X_AXIS]) >= 90) || (abs(imu.gyro[Y_AXIS]) >= 90) || (abs(imu.gyro[Z_AXIS]) >= 90)) {
-    if (!spinning) {
-      spinStart = millis();
-      spinning = true;   // Vehicle is spinning
-    }
-  } else {
-    spinning = false;
-  }
-
-  // Determine if prolonged spinning is an accident
-  if (spinning) {
-    uint32_t spinDuration = millis() - spinStart;
-    if (spinDuration >= SPIN_DURATION) {
-      setMsgFlag(1);   // Met with accident
-    }
+  if (impact || toppledTooLong) {
+    detectedAt[1] = millis();
+    setMsgFlag(1);   // Met with accident
   }
 }
 
 /*
-  Flags rough terrain or potholes from vertical vibrations
-  VIBR_CNT_THRESHOLD or more in the window => rough terrain, fewer => pothole
+  Flags bad terrain (a bump, pothole or rough surface): the vertical acceleration, gravity removed, reaches TERRAIN_G
+  either way, only while moving at ROAD_MIN_SPEED or faster (no false triggers when parked: loading, doors, people
+  getting in)
 */
 void checkTerrain(void) {
 
-  // Vertical acceleration (g, gravity removed, + = up)
+  // Vertical acceleration (g, gravity removed: 0 when level and still, + = up)
   float acc_z = imu.acc[Z_AXIS] - imu.accBias[Z_AXIS];
 
-  // Count each crossing of the threshold once
-  if (!aboveVibr && (acc_z >= VIBR_G_THRESHOLD)) {
-    aboveVibr = true;
-    if (!vibration) {               // first vibration opens the window
-      vibrationStart = millis();
-      vibration = true;
-    }
-    vibrationCount++;
-  } else if (aboveVibr && (acc_z < VIBR_G_RELEASE)) {
-    aboveVibr = false;              // below again: ready for the next one
-  }
-
-  // Determine rough/bumpy terrain or potholes
-  if (vibration) {
-
-    uint32_t vibrationDuration = millis() - vibrationStart;
-
-    if (vibrationDuration >= VIBR_INTERVAL_THRESHOLD) {
-
-      if (vibrationCount >= VIBR_CNT_THRESHOLD) {
-        setMsgFlag(3);   // Rough terrain is present
-      } else {
-        setMsgFlag(4);   // Potholes are present
-      }
-
-      vibration = false;
-      vibrationCount = 0;
-    }
+  if ((fabsf(acc_z) >= TERRAIN_G) && (myself.speed >= ROAD_MIN_SPEED)) {
+    detectedAt[3] = millis();
+    setMsgFlag(3);   // Bad terrain
   }
 }
 
@@ -162,6 +120,7 @@ void checkTerrain(void) {
 */
 void checkBattery(void) {
   if (myself.battery <= LOW_BATTERY_THRESHOLD) {
+    detectedAt[2] = millis();
     setMsgFlag(2);   // Low on battery
   }
 }
@@ -169,6 +128,18 @@ void checkBattery(void) {
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 // Messages
 // ------------------------------------------------------------------------------------------------------------------------------------------------
+
+/*
+  Returns true while a condition is detected, and for LIGHT_HOLD_MS after it was last detected (for the RGB light)
+  code: message code of the condition (1 accident, 2 low battery, 3 bad terrain)
+*/
+bool detected(uint8_t code) {
+  if (code >= MSG_COUNT) {
+    return false;
+  }
+  uint32_t at = detectedAt[code];     // read before millis(), so a detection on core 0 in between cannot wrap
+  return (at != 0) && (millis() - at < LIGHT_HOLD_MS);
+}
 
 /*
   Marks a message as pending (safe from both cores)

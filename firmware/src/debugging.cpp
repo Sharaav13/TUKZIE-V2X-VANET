@@ -1,11 +1,11 @@
 //*************************************************************************************************************************************************
 // TUKZIE V2X VANET (TVV)
-// NODE FIRMWARE - DIAGNOSTICS
+// NODE FIRMWARE - DEBUGGING
 //*************************************************************************************************************************************************
 
 #include "system.h"
-#include "diagnostics.h"
-#include "display.h"
+#include "debugging.h"
+#include "ui.h"
 #include "storage.h"
 #include "sensing.h"
 #include "host.h"
@@ -20,16 +20,16 @@
 
 /*
   Runs the debug routine of the selected peripheral
-  peripheral: DBG_OLED, DBG_SD_CARD, DBG_GPS, DBG_IMU, DBG_HOST, DBG_LORA_RX, DBG_LORA_TX, DBG_LORA or DBG_SENSE
+  peripheral: DBG_UI, DBG_SD_CARD, DBG_GPS, DBG_IMU, DBG_HOST, DBG_LORA_RX, DBG_LORA_TX or DBG_LORA
 */
 void debug(uint8_t peripheral) {
 
   switch (peripheral) {
-    case DBG_OLED:
-      oledDebug();
+    case DBG_UI:
+      uiDebug();
       break;
     case DBG_SD_CARD:
-      sdDebug();
+      storageDebug();
       break;
     case DBG_GPS:
       gpsDebug();
@@ -49,39 +49,45 @@ void debug(uint8_t peripheral) {
     case DBG_LORA:
       loraDebug(2);
       break;
-    case DBG_SENSE:
-      senseDebug();
-      break;
   }
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
-// OLED
+// User Interface
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
-  Shows the same test message on the OLED and the Serial Monitor every OLED_TEST_INTVL
+  Every UI_TEST_INTVL: sets the RGB LED to its next colour (cycling through all of them) and shows the same test
+  message, with that colour's name, on the OLED and the Serial Monitor
 */
-void oledDebug(void) {
+void uiDebug(void) {
 
-  static uint32_t lastTest = 0;     // previous OLED test message (kept between calls)
+  // Name of each RGB colour (index = colour code, OFF to BRIGHTWHITE)
+  static const char *const colourNames[] = {"Off", "Red", "Orange", "Yellow", "Green", "Blue", "Purple", "White"};
+  static_assert(sizeof(colourNames) / sizeof(colourNames[0]) == BRIGHTWHITE + 1, "colourNames must have an entry for every colour");
 
-  if ((millis() - lastTest) >= OLED_TEST_INTVL) {
-    String msg = "OLED test: " + String(millis()) + " ms\n";
+  static uint32_t lastTest = 0;     // previous UI test message (kept between calls)
+  static uint8_t colour = RED;      // next colour shown (kept between calls)
+
+  if ((millis() - lastTest) >= UI_TEST_INTVL) {
+    lights.toggle(colour);
+    String msg = "UI test: " + String(millis()) + " ms\nRGB: " + colourNames[colour] + "\n";
     oled.disp(msg, 1, false, false);
     Serial.print(msg);
+
+    colour = (colour >= BRIGHTWHITE) ? RED : (colour + 1);   // RED to BRIGHTWHITE, then round again
     lastTest = millis();
   }
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
-// SD Card
+// Storage
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
   Writes a test line to DEBUG_FILE (shown on the OLED) and reads the file back to Serial
 */
-void sdDebug(void) {
+void storageDebug(void) {
 
   if ((millis() - storage.lastWrite) >= SD_WRITE_INTVL) {
     String written = "SD test: " + String(millis()) + " ms\n";
@@ -132,32 +138,6 @@ void imuDebug(void) {
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
-// Sensing
-// ------------------------------------------------------------------------------------------------------------------------------------------------
-
-/*
-  Runs the sensing (GPS, IMU and speed fusion) as sensingLoop() does, and writes a line to SENSE_FILE every
-  SENSE_LOG_INTVL (also shown on Serial)
-  Call every loop: the speed filter needs its 100 Hz IMU updates
-*/
-void senseDebug(void) {
-
-  // Kalman predict step at 100 Hz (reads the IMU)
-  speedFilter.update();
-
-  // GPS data and Kalman correct step, then the fused speed
-  gps.get();
-  myself.speed = speedFilter.getSpeed();
-
-  if ((millis() - storage.lastSenseLog) >= SENSE_LOG_INTVL) {
-    String line = formatSensing(myself);
-    storage.write(line, SENSE_FILE);
-    Serial.print(line);
-    storage.lastSenseLog = millis();
-  }
-}
-
-// ------------------------------------------------------------------------------------------------------------------------------------------------
 // Host
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -167,7 +147,9 @@ void senseDebug(void) {
 void hostDebug(void) {
 
   if ((millis() - host.lastTx) >= HOST_TX_INTVL) {
-    host.uart.println("Host Tx: " + (String)millis());
+    String txLine = "Host Tx: " + (String)millis();
+    host.uart.println(txLine);
+    Serial.println(txLine);
     host.lastTx = millis();
   }
 
@@ -177,7 +159,7 @@ void hostDebug(void) {
   while (host.uart.available() > 0) {
     char c = (char)host.uart.read();
     if (c == '\n') {
-      Serial.println("Host Rx: " + rxLine);
+      Serial.println("Host Rx: got[" + rxLine + "]" + " @ " + (String)millis());
       rxLine = "";
     } else if (c != '\r') {
       rxLine += c;
@@ -248,7 +230,7 @@ void loraDebug(uint8_t select) {
         "RX:"
         "%06" PRIu32 ","          // date (DDMMYY)
         "%08" PRIu32 ",%lu,"      // time (HHMMSSCC), ms
-        "%.1f,%.2f,%.0f,"         // RX diagnostics (rssi, snr, freqErr)
+        "%.1f,%.2f,%.0f,"         // RX link quality (rssi, snr, freqErr)
         "%s\n",                   // received payload
         myself.date,
         myself.time, millis(),
@@ -257,62 +239,4 @@ void loraDebug(uint8_t select) {
       Serial.print(rxStr);
     }
   }
-}
-
-// ------------------------------------------------------------------------------------------------------------------------------------------------
-// Log Formatting
-// ------------------------------------------------------------------------------------------------------------------------------------------------
-
-/*
-  Formats a sensing (GPS and IMU) log line for SENSE_FILE
-  node: a copy of myself (IMU values come from imu)
-  Line: ms,date,time,lat,lon,alt,speed,course,sats,hdop,ax,ay,az,gx,gy,gz
-*/
-String formatSensing(const Data &node) {
-  char line[192];
-  snprintf(line, sizeof(line),
-    "%lu,"                          // ms
-    "%06" PRIu32 ",%08" PRIu32 ","  // date (DDMMYY), time (HHMMSSCC)
-    "%.7f,%.7f,%.1f,"               // lat, lon (deg), alt (m)
-    "%.1f,%.1f,"                    // speed (kmph), course (deg)
-    "%u,%.1f,"                      // sats, hdop
-    "%.3f,%.3f,%.3f,"               // acc x, y, z (g)
-    "%.2f,%.2f,%.2f\n",             // gyro x, y, z (dps)
-    (unsigned long)millis(),
-    node.date, node.time,
-    node.lat, node.lon, node.alt,
-    node.speed, node.course,
-    node.sats, node.hdop,
-    imu.acc[X_AXIS], imu.acc[Y_AXIS], imu.acc[Z_AXIS],
-    imu.gyro[X_AXIS], imu.gyro[Y_AXIS], imu.gyro[Z_AXIS]);
-  return String(line);
-}
-
-/*
-  Formats a VANET log line for LOG_FILE
-  event: "RX" or "TX"
-  Line: ms,event,src,<node>,snr,freqErr
-  <node> is Data::toStr(): date,time,lat,lon,alt,speed,course,status,tasks,battery,message,seq,srcRssi,pktRssi
-*/
-String formatVanet(const char *event, const Data &node) {
-
-  // When, what and who: ms,event,src,
-  char head[48];
-  snprintf(head, sizeof(head), "%lu,%s,%u,", (unsigned long)millis(), event, node.id);
-
-  // Link quality (pktRssi, snr and freqErr are 0 for TX), seq and srcRssi are in <node>: ,snr,freqErr
-  char tail[32];
-  snprintf(tail, sizeof(tail), ",%.2f,%.0f\n", node.snr, node.freqErr);
-
-  return String(head) + node.toStr() + tail;
-}
-
-/*
-  Formats all of a node's data for NODE_FILE or DEBUG_FILE
-  Line: ms,id,<node>
-*/
-String formatMyself(const Data &node) {
-  char head[32];
-  snprintf(head, sizeof(head), "%lu,%u,", (unsigned long)millis(), node.id);
-  return String(head) + node.toStr() + "\n";
 }

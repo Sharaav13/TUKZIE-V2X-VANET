@@ -1,10 +1,10 @@
 //*************************************************************************************************************************************************
 // TUKZIE V2X VANET (TVV)
-// NODE FIRMWARE - OLED DISPLAY
+// NODE FIRMWARE - UI (OLED DISPLAY & RGB LED)
 //*************************************************************************************************************************************************
 
 #include "system.h"
-#include "display.h"
+#include "ui.h"
 #include "vanet.h"
 #include "host.h"
 #include "interpret.h"
@@ -178,7 +178,7 @@ bool SystemLights::init(void) {
 
 /*
   Sets the RGB LED colour
-  colour: RED, ORANGE, YELLOW, GREEN, BLUE or PURPLE (anything else turns it off)
+  colour: RED, ORANGE, YELLOW, GREEN, BLUE, PURPLE or BRIGHTWHITE (anything else turns it off)
 */
 void SystemLights::toggle(uint8_t colour) {
   this->colour = colour;
@@ -211,13 +211,17 @@ void SystemLights::toggle(uint8_t colour) {
     case PURPLE:
       dev.setPixelColor(0, dev.Color(128, 0, 128));
       break;
+
+    case BRIGHTWHITE:
+      dev.setPixelColor(0, dev.Color(255, 255, 255));
+      break;
   }
 
   dev.show(); // Push the colour to the LED
 }
 
 /*
-  Shows a colour for FLASH_MS without blocking (update() turns it off)
+  Shows a colour for FLASH_MS without blocking (update() then returns to the background colour)
 */
 void SystemLights::flash(uint8_t colour) {
   toggle(colour);
@@ -226,11 +230,21 @@ void SystemLights::flash(uint8_t colour) {
 }
 
 /*
-  Call every loop: ends a flash after FLASH_MS
+  Sets the colour shown between flashes, straight away unless a flash is on
+*/
+void SystemLights::setBackground(uint8_t colour) {
+  background = colour;
+  if (!flashing && (this->colour != colour)) {
+    toggle(colour);
+  }
+}
+
+/*
+  Call every loop: ends a flash after FLASH_MS, back to the background colour
 */
 void SystemLights::update(void) {
   if (flashing && (millis() - flashStart >= FLASH_MS)) {
     flashing = false;
-    toggle(OFF);
+    toggle(background);
   }
 }

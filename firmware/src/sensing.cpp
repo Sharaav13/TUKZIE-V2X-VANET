@@ -10,6 +10,7 @@
 // INSTANCES
 //*************************************************************************************************************************************************
 
+UtcClock utcClock;
 GPS gps;
 IMU imu;
 SpeedFilter speedFilter;
@@ -19,11 +20,94 @@ SpeedFilter speedFilter;
 //*************************************************************************************************************************************************
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
+// UTC Clock (GPS PPS)
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+
+/*
+  GPS PPS: records the local µs of the edge in utcClock.ppsUs
+*/
+void IRAM_ATTR ppsISR() {
+  int64_t now = esp_timer_get_time();
+  portENTER_CRITICAL_ISR(&utcClock.mux);
+  utcClock.ppsUs = now;     // 64 bits: not atomic, so guarded
+  portEXIT_CRITICAL_ISR(&utcClock.mux);
+}
+
+/*
+  Pairs the latest PPS edge with the UTC second of a newly parsed NMEA time
+  utcSecond: seconds since UTC midnight
+*/
+void UtcClock::pair(int32_t utcSecond) {
+
+  int64_t now = esp_timer_get_time();
+
+  portENTER_CRITICAL(&mux);
+
+  int64_t edge = ppsUs;
+  int64_t sinceEdge = now - edge;
+
+  // Only the NMEA time that follows its own PPS edge (no PPS, an old edge or a late sentence would mislabel it)
+  bool valid = (edge != 0) && (edge != anchorUs)
+            && (sinceEdge >= PPS_NMEA_MIN_US) && (sinceEdge <= PPS_NMEA_MAX_US);
+
+  if (valid) {
+    int64_t utc = (int64_t)utcSecond * 1000000LL;
+
+    // Measure the ESP32 clock rate over the seconds since the previous anchor (up to 10 s, else just re-anchor)
+    if (anchorUs != 0) {
+      int64_t utcElapsed = utc - anchorUtc;
+      if (utcElapsed < 0) {
+        utcElapsed += DAY_US;     // over midnight
+      }
+      if ((utcElapsed > 0) && (utcElapsed <= 10000000LL)) {
+        double measured = (double)(edge - anchorUs) / (double)utcElapsed;
+        if (fabs(measured - 1.0) <= PPS_MAX_RATE_ERR) {
+          rate = measured;
+        }
+      }
+    }
+
+    anchorUs = edge;
+    anchorUtc = utc;
+  }
+
+  portEXIT_CRITICAL(&mux);
+}
+
+/*
+  Converts a local µs (esp_timer_get_time()) to µs since UTC midnight
+  sync: set to 0 = not synced (returns 0), 1 = PPS locked, 2 = holdover
+*/
+int64_t UtcClock::toUtc(int64_t localUs, uint8_t &sync) {
+
+  portENTER_CRITICAL(&mux);
+  int64_t aUs = anchorUs;
+  int64_t aUtc = anchorUtc;
+  double r = rate;
+  portEXIT_CRITICAL(&mux);
+
+  if (aUs == 0) {
+    sync = 0;
+    return 0;
+  }
+
+  int64_t sinceAnchor = localUs - aUs;
+  sync = (llabs(sinceAnchor) <= PPS_LOCK_US) ? 1 : 2;
+
+  int64_t utc = aUtc + llround((double)sinceAnchor / r);
+  utc %= DAY_US;              // wrap over midnight
+  if (utc < 0) {
+    utc += DAY_US;
+  }
+  return utc;
+}
+
+// ------------------------------------------------------------------------------------------------------------------------------------------------
 // GPS
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
-  Setup GPS
+  Setup GPS and its PPS interrupt
   Returns true if the GPS UART driver was installed
 */
 bool GPS::init(void) {
@@ -33,6 +117,10 @@ bool GPS::init(void) {
     reportError("GPS: UART driver failed to install\n");
     return false;
   }
+
+  // PPS (pulled down, so an unconnected pin gives no edges)
+  pinMode(GPS_PPS, INPUT_PULLDOWN);
+  attachInterrupt(digitalPinToInterrupt(GPS_PPS), ppsISR, RISING);
   return true;
 }
 
@@ -48,6 +136,15 @@ void GPS::get(void) {
   }
 
   status();
+
+  // PPS time base: pair the latest PPS edge with each new UTC second (only with a fix, the time before one can be off)
+  if (fix && tinyGps.time.isUpdated() && tinyGps.time.isValid()) {
+    int32_t utcSecond = tinyGps.time.hour() * 3600 + tinyGps.time.minute() * 60 + tinyGps.time.second();
+    if (utcSecond != lastUtcSecond) {
+      lastUtcSecond = utcSecond;
+      utcClock.pair(utcSecond);
+    }
+  }
 
   // Date and time (converted from UTC to SAST)
   if (tinyGps.time.isValid() && tinyGps.date.isValid()) {
@@ -189,6 +286,10 @@ bool IMU::init(void) {
   }
 
   lsm6.enableDefault();
+
+  // Accelerometer +-8 g (enableDefault() sets +-2 g, which saturates below an ACCIDENT_G impact)
+  // CTRL1_XL 0x8C: ODR_XL = 1000 (1.66 kHz), FS_XL = 11 (+-8 g), BW_XL = 00 (ACC_MG_PER_LSB 0.244)
+  lsm6.writeReg(LSM6::CTRL1_XL, 0x8C);
 
   if (!calibrate()) {
     return false;       // calibrate has already reported the error

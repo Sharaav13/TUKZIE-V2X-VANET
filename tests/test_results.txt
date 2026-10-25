@@ -1,0 +1,142 @@
+TVV test analysis, run 2026-10-25 21:17:44
+Alice = node 1 (log1), Bob = node 2 (log2)
+
+==================== GRANDWEST CASINO PARKING LOT ====================
+run 1: 13:54:00 to 13:56:59, 0 accident and 2 terrain detections, 0 bumps marked
+  terrain detected (beacon) at 13:54:48
+  terrain detected (beacon) at 13:55:04
+
+==================== HELDERSIG STRAIGHT ====================
+Run                  True         Mean       Variance      RMS vs true  Samples
+                   (km/h)       (km/h)       (km/h)^2           (km/h)         
+20kmph (1)             20        19.03           2.18             1.76       72
+20kmph (2)             20        18.31           1.20             2.01       78
+20kmph (3)             20        19.82           1.44             1.20       41
+40kmph (1)             40        37.98           0.87             2.22       32
+40kmph (2)             40        39.26           4.79             2.28       34
+40kmph (3)             40        38.95           1.62             1.63       32
+60kmph (1)             60        59.21           7.31             2.78       36
+60kmph (2)             60        59.84           7.68             2.71       21
+60kmph (3)             60        59.78           7.77             2.72       18
+
+Overall per true speed (all samples of its runs):
+   20 km/h: mean 18.91 km/h, variance 1.94 (km/h)^2, RMS vs true 1.77 km/h, 3 runs, 191 samples
+   40 km/h: mean 38.74 km/h, variance 2.72 (km/h)^2, RMS vs true 2.07 km/h, 3 runs, 98 samples
+   60 km/h: mean 59.52 km/h, variance 7.41 (km/h)^2, RMS vs true 2.75 km/h, 3 runs, 75 samples
+
+==================== HOWARD CENTRE ====================
+
+Undercover (undercover lap 1, undercover lap 2, undercover lap 3):
+Alice -> Bob: 0 of 40 received, PDR 0.0 %, average RSSI NaN dBm, average SNR NaN dB
+Bob -> Alice: 7 of 40 received, PDR 17.5 %, average RSSI -119.0 dBm, average SNR -3.96 dB
+Both directions: 7 of 80 received, PDR 8.8 %
+Packets without a time (not shown on the time axis): 0
+Black lines: 4
+  Bob GPS: 600 of 600 samples with a position, satellites 0..0
+  Position constant at (-33.9333458, 18.5084095) in every sample: interpreted as NO GPS (last fix held)
+  PPS-timed packets: 7 (both locked 0, a node in holdover 7)
+                                       Min (ms)   Avg (ms)   Max (ms)
+  Latency (TX start to RxDone)         1507.340   1507.628   1507.991
+  Time on air (TX start to TxDone)     1482.979   1482.987   1482.995
+  Latency minus time on air              24.358     24.642     25.003
+
+Outside (outside lap 1, outside lap 2, outside lap 3):
+Alice -> Bob: 0 of 40 received, PDR 0.0 %, average RSSI NaN dBm, average SNR NaN dB
+Bob -> Alice: 3 of 40 received, PDR 7.5 %, average RSSI -119.3 dBm, average SNR -14.42 dB
+Both directions: 3 of 80 received, PDR 3.8 %
+Packets without a time (not shown on the time axis): 0
+Black lines: 4
+  Bob GPS: 600 of 600 samples with a position, satellites 20..22
+  Average location: (-33.9336594, 18.5103891)
+  Variance about the average: east 0.04 m^2, north 0.06 m^2 (std 0.21 m, 0.24 m), RMS spread 0.32 m
+  Against the true location (-33.9336425, 18.5103687): average is 2.66 m away, variance 7.20 m^2 (RMS error 2.68 m)
+  PPS-timed packets: 3 (both locked 3, a node in holdover 0)
+                                       Min (ms)   Avg (ms)   Max (ms)
+  Latency (TX start to RxDone)         1510.514   1510.519   1510.522
+  Time on air (TX start to TxDone)     1482.988   1482.992   1482.995
+  Latency minus time on air              27.519     27.528     27.534
+
+==================== MENZIES STAIRCASE ====================
+Alice -> Bob (from Alice's seq numbers):
+  Climbed  Folder     Received     Sent    PDR (%)   RSSI (dBm)   SNR (dB)
+  0        lvl2             18       18      100.0        -64.3      12.35
+  1        lvl3              0       18        0.0          NaN        NaN
+  2        lvl4              0       18        0.0          NaN        NaN
+  3        lvl5              0       19        0.0          NaN        NaN
+  4        lvl6              0       19        0.0          NaN        NaN
+  5        lvl7              0       18        0.0          NaN        NaN
+  6*       lvl7+             0       18        0.0          NaN        NaN
+Bob -> Alice (from Bob's seq numbers):
+  Climbed  Folder     Received     Sent    PDR (%)   RSSI (dBm)   SNR (dB)
+  0        lvl2             19       19      100.0        -64.1      11.39
+  1        lvl3             18       19       94.7       -112.2      -5.18
+  2        lvl4             18       18      100.0       -114.2     -14.99
+  3        lvl5             17       18       94.4       -112.1     -15.60
+  4        lvl6             16       18       88.9       -111.9     -11.05
+  5        lvl7             15       18       83.3       -110.7     -16.50
+  6*       lvl7+            10       18       55.6       -113.3     -13.00
+
+==================== SHD TEST ====================
+Serial monitor: 109 host packets shown, hosts: A = Alice, B = Bob
+
+Forwards (a beacon for a node other than the receiver and not a broadcast is forwarded by it):
+  Alice's beacons forwarded by Bob: anticipated 7, actual 7 (7 of the anticipated, 0 unexpected)
+    anticipated seq: [4 9 11 12 13 15 16]
+    forwarded seq:   [4 9 11 12 13 15 16]
+    forwards sent with ttl 1 (direct beacons go out with 2)
+  Bob's beacons forwarded by Alice: anticipated 12, actual 12 (12 of the anticipated, 0 unexpected)
+    anticipated seq: [3 4 5 6 8 10 12 13 16 18 20 21]
+    forwarded seq:   [3 4 5 6 8 10 12 13 16 18 20 21]
+    forwards sent with ttl 1 (direct beacons go out with 2)
+
+Host message (message field of each node's myself log within 3 s of the host sending a code, or the sensor log's last-beacon code within 23 s):
+  Alice (host A, serial clock +1.70 s from the node's): 27 host messages sent (code 4), message field updated after 27 (100 %)
+    shown in the myself log: 27, carried by a beacon (sensor log): 23
+    message field values in Alice's myself log: 0 (x131), 4 (x301)
+    status, tasks and battery matched the host's packet in 295 of 295 myself lines (100 %)
+  Bob (host B, serial clock +1.20 s from the node's): 28 host messages sent (code 4), message field updated after 28 (100 %)
+    shown in the myself log: 27, carried by a beacon (sensor log): 27
+    message field values in Bob's myself log: 0 (x179), 4 (x245)
+    status, tasks and battery matched the host's packet in 296 of 296 myself lines (100 %)
+
+Peer list vs VANET RX (peer packets shown on the serial monitor against each node's RX lines):
+  Alice (host A): 8 peer packets listed, 8 have an RX line, 8 match it in status, tasks, battery, message and RSSI
+    direct RX lines while the monitor ran: 7, missing from the peer list: 0
+  Bob (host B): 8 peer packets listed, 8 have an RX line, 8 match it in status, tasks, battery, message and RSSI
+    direct RX lines while the monitor ran: 8, missing from the peer list: 0
+
+==================== TUKZIE TEST ====================
+Alice -> Bob: 51 of 126 received, PDR 40.5 %, average RSSI -92.0 dBm, average SNR -8.39 dB
+Bob -> Alice: 85 of 127 received, PDR 66.9 %, average RSSI -100.3 dBm, average SNR 1.18 dB
+Both directions: 136 of 253 received, PDR 53.8 %
+Packets without a time (not shown on the time axis): 0
+Black lines: 4
+
+Excluding packets sent from 18:41 to 18:52:
+Alice -> Bob: 45 of 86 received, PDR 52.3 %
+Bob -> Alice: 72 of 87 received, PDR 82.8 %
+Both directions: 117 of 173 received, PDR 67.6 %
+
+==================== BASELINE ====================
+Alice -> Bob: 22 of 23 received, PDR 95.7 %, average RSSI -62.8 dBm, average SNR 14.49 dB
+Bob -> Alice: 23 of 23 received, PDR 100.0 %, average RSSI -62.7 dBm, average SNR 11.40 dB
+Both directions: 45 of 46 received, PDR 97.8 %
+Packets without a time (not shown on the time axis): 1
+Black lines: 0
+
+==================== UCT RUGBY FIELD ====================
+Run          PDR A->B     PDR B->A     PDR both    Mean distance    Max received at
+run 1            2.9%        32.8%        28.1%          200.1 m            288.4 m
+run 2            0.0%        48.2%        41.2%          222.6 m            302.9 m
+run 3            6.2%        37.1%        32.2%          252.1 m            324.0 m
+Overall          3.3%        38.5%        33.1%          224.2 m            324.0 m
+Mean distance: average Alice-Bob separation when each packet was sent (range distance).
+Max received at: furthest separation at which a packet was still received.
+Packets without a distance (no GPS fix on either node): 0 of 586
+
+PDR bins: 23 bins of 25 packets (11 left over)
+UCT rugby field - PDR vs distance: n = 23, Pearson r = -0.750, best fit y = 0.0009184 x^2 + -0.5476 x + 102.4, adjusted R^2 = 0.591
+UCT rugby field - RSSI vs distance: n = 194, Pearson r = -0.531, exponential fit y = 37.09 e^{-0.05055 x} + -117.3, adjusted R^2 = 0.839
+UCT rugby field - SNR vs distance: n = 194, Pearson r = -0.791, exponential fit y = 31.59 e^{-0.01471 x} + -17.45, adjusted R^2 = 0.831
+
+Plots saved to C:\Users\shara\Dev\TUKZIE-V2X-VANET\tests\plots

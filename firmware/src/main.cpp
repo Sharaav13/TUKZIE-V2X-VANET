@@ -22,13 +22,13 @@
 //*************************************************************************************************************************************************
 
 #include <system.h>         // External libraries, macros, Data struct & shared global variables
-#include <display.h>        // OLED display
+#include <ui.h>             // OLED display, RGB LED
 #include <storage.h>        // SD Card
 #include <sensing.h>        // GPS, IMU
 #include <interpret.h>      // Coded messages & status, road awareness
 #include <host.h>           // Host link (UART), e.g. the TUKZIE dashboard
 #include <vanet.h>          // LoRa
-#include <diagnostics.h>    // Peripheral debugging, testing and log formatting
+#include <debugging.h>      // Peripheral debugging and testing
 
 //*************************************************************************************************************************************************
 // GLOBAL VARIABLES
@@ -45,8 +45,8 @@ bool imuReady = false;
 bool vanetReady = false;
 
 // Tasks
-TaskHandle_t sensingTask = NULL;    // core 0
-TaskHandle_t networkTask = NULL;    // core 1
+TaskHandle_t v2sTask = NULL;    // core 0
+TaskHandle_t v2vTask = NULL;    // core 1
 
 // Protects myself (written on core 0, read on core 1)
 SemaphoreHandle_t myselfMutex = NULL;
@@ -94,7 +94,7 @@ Data copyMyself(void) {
 /*
   Core 0: GPS, IMU and host Rx into myself
 */
-void sensingLoop(void *param) {
+void v2sLoop(void *param) {
   for (;;) {
 
     // Kalman predict step at 100 Hz (without the IMU, speed follows the GPS)
@@ -108,7 +108,7 @@ void sensingLoop(void *param) {
     myself.speed = speedFilter.getSpeed();  // fused GPS + IMU speed (kmph)
     if (imuReady) {
       checkAccident();                      // accident or toppled over
-      checkTerrain();                       // rough terrain or potholes
+      checkTerrain();                       // bad terrain (bump, pothole or rough surface)
     }
     if (hostReady) {
       host.rx();                            // status, tasks and battery from the host
@@ -125,7 +125,7 @@ void sensingLoop(void *param) {
 /*
   Core 1: VANET Rx/Tx, cluster, OLED node view and SD Card logs
 */
-void networkLoop(void *param) {
+void v2vLoop(void *param) {
   for (;;) {
 
     bool received = false;    // a valid packet was read this loop
@@ -138,13 +138,31 @@ void networkLoop(void *param) {
       // Log now: rxBuffer changes on the next rx()
       received = vanet.rx();
       if (received) {
-        storage.write(formatVanet("RX", vanet.rxBuffer), LOG_FILE);
+        storage.write(formatVanet("RX", vanet.rxBuffer), storage.vanetFile);
+      }
+
+      // Forward: a packet addressed to another node, sent on as received (in a transmission slot shared with my
+      // beacons, before them, after the back-off, with the channel free)
+      if (vanet.forwardDue()) {
+        Data fwd;
+        if (vanet.forward(fwd)) {
+          storage.write(formatVanet("FW", fwd), storage.vanetFile);
+        }
       }
 
       // Tx: broadcast myself with the host message if set, otherwise the top pending message
       if (vanet.beaconDue()) {
-        Data me = copyMyself();
+
+        // The host message is taken with the copy (sent once): one the host sends while this beacon is on air
+        // (~1.5 s at SF12) is kept in myself for the next beacon instead of being cleared after it
+        xSemaphoreTake(myselfMutex, portMAX_DELAY);
+        Data me = myself;
         bool hostMsg = (me.message == HOST_MSG);
+        if (hostMsg) {
+          myself.message = 0;
+        }
+        xSemaphoreGive(myselfMutex);
+
         if (!hostMsg) {
           me.message = sortMsg();   // other messages stay pending while the host message goes first
         }
@@ -152,22 +170,24 @@ void networkLoop(void *param) {
         bool sent = vanet.tx(me);
 
         if (sent) {
-          lights.flash(msgColours[me.message]);   // colour of the message sent
-          storage.write(formatVanet("TX", me), LOG_FILE);
-          if (hostMsg) {
-            xSemaphoreTake(myselfMutex, portMAX_DELAY);
-            myself.message = 0;             // host message sent once, cleared until the host sends it again
-            xSemaphoreGive(myselfMutex);
-          }
-        } else if ((me.message != 0) && !hostMsg) {
-          setMsgFlag(me.message);           // radio busy: retry next beacon (a host message is still in myself)
+          lights.flash(msgColours[hostMsg ? HOST_MSG : 0]);   // green for a beacon, blue for one carrying the host message
+          storage.write(formatVanet("TX", me), storage.vanetFile);
+        } else if (hostMsg) {
+          xSemaphoreTake(myselfMutex, portMAX_DELAY);
+          myself.message = HOST_MSG;        // radio busy: put the host message back for the next beacon
+          xSemaphoreGive(myselfMutex);
+        } else if (me.message != 0) {
+          setMsgFlag(me.message);           // radio busy: retry next beacon
         }
       }
 
       // Remove peers not heard from for PEER_TIMEOUT
       if (millis() - vanet.cluster.lastCheck >= PEER_CHECK_INTVL) {
-        // The peer whose message is shown has left the cluster: clear its message
-        if ((vanet.cluster.removeStale() > 0) && (vanet.cluster.find(vanet.peerMsgId) < 0)) {
+        vanet.cluster.removeStale();
+
+        // The message shown is from a node not in my cluster (it left, or it was only forwarded to me)
+        // and older than PEER_TIMEOUT: clear it
+        if ((vanet.peerMsg != 0) && (vanet.cluster.find(vanet.peerMsgId) < 0) && (millis() - vanet.peerMsgAt > PEER_TIMEOUT)) {
           vanet.peerMsg = 0;
         }
         vanet.cluster.lastCheck = millis();
@@ -190,18 +210,33 @@ void networkLoop(void *param) {
       oled.lastShow = millis();
     }
 
-    // RGB: end Tx flashes
+    // RGB: steady colour of the most important condition detected (held LIGHT_HOLD_MS after it was last seen),
+    // Tx flashes on top of it. In message priority (accident red > low battery purple > bad terrain orange),
+    // then no GPS fix (yellow). Without a host the battery is not checked, so its light goes off
+    uint8_t background = gps.fix ? OFF : NO_FIX_COLOUR;
+    if (detected(3)) {
+      background = msgColours[3];     // bad terrain
+    }
+    if (detected(2)) {
+      background = msgColours[2];     // low battery
+    }
+    if (detected(1)) {
+      background = msgColours[1];     // accident
+    }
+    lights.setBackground(background);
     lights.update();
 
     // Log myself
     if (millis() - storage.lastNodeLog >= NODE_LOG_INTVL) {
-      storage.write(formatMyself(copyMyself()), NODE_FILE);
+      storage.write(formatMyself(copyMyself()), storage.myselfFile);
       storage.lastNodeLog = millis();
     }
 
-    // Log sensing
+    // Log sensing (with the message in my last beacon)
     if (millis() - storage.lastSenseLog >= SENSE_LOG_INTVL) {
-      storage.write(formatSensing(copyMyself()), SENSE_FILE);
+      Data me = copyMyself();
+      me.message = vanet.lastMsg;
+      storage.write(formatSensing(me), storage.sensorFile);
       storage.lastSenseLog = millis();
     }
 
@@ -226,6 +261,7 @@ void setup() {
 
   // Initialise RGB LED first, so every init result can blink
   lights.init();
+  lights.toggle(BRIGHTWHITE);         // powered on: white until the first init result (Host) blinks green or red
 
   // Initialise host
   hostReady = host.init();
@@ -234,29 +270,30 @@ void setup() {
   oled.init();
 
   oled.disp("TUKZIE V2X", 2, true, false);
-  delay(2000);
+  delay(1000);
   oled.refresh();
-  oled.disp("Booting...", 1, true, false);
-  delay(2000);
+  oled.disp("BOOTING", 1, true, false);
+  delay(500);
   oled.refresh();
 
   // Show existing init messages (each blinks green or red)
-  showInit("Host", hostReady, false, 1000);
+  showInit("Host", hostReady, false, 500);
 
   // Initialise other peripherals
   sdReady = storage.init();
-  showInit("SD", sdReady, true, 1000);
+  showInit("SD", sdReady, true, 500);
   gpsReady = gps.init();
-  showInit("GPS", gpsReady, true, 1000);
+  showInit("GPS", gpsReady, true, 500);
   imuReady = imu.init();
-  showInit("IMU", imuReady, true, 1000);
+  showInit("IMU", imuReady, true, 500);
   vanetReady = vanet.init();
-  showInit("LoRa", vanetReady, true, 3000);
+  showInit("LoRa", vanetReady, true, 500);
 
   // Start configurating node
   oled.refresh();
   oled.disp(storage.configNode(), 1, false, false);
-  delay(3000);
+  storage.nameLogs();             // log files named with my node ID (fresh every boot)
+  delay(1000);
 
   // Add necessary setup error message
   if (errors.check) {
@@ -265,13 +302,13 @@ void setup() {
 
   // Indicate setting up finished
   oled.refresh();
-  oled.disp("Finished boot.", 1, true, false);
-  delay(3000);
+  oled.disp("FINISHED BOOT", 1, true, false);
+  delay(500);
 
   if (errors.check) {
     oled.disp(errors.msg, 1, false, false);
     lights.toggle(RED);         // red while the errors show
-    delay(3000);
+    delay(1000);
     lights.toggle(OFF);
   }
 
@@ -291,8 +328,8 @@ void setup() {
     return;
   }
 
-  xTaskCreatePinnedToCore(sensingLoop, "sensing", TASK_STACK, NULL, TASK_PRIORITY, &sensingTask, SENSING_CORE);
-  xTaskCreatePinnedToCore(networkLoop, "network", TASK_STACK, NULL, TASK_PRIORITY, &networkTask, NETWORK_CORE);
+  xTaskCreatePinnedToCore(v2sLoop, "v2s", TASK_STACK, NULL, TASK_PRIORITY, &v2sTask, V2S_CORE);
+  xTaskCreatePinnedToCore(v2vLoop, "v2v", TASK_STACK, NULL, TASK_PRIORITY, &v2vTask, V2V_CORE);
 }
 
 //*************************************************************************************************************************************************
@@ -302,19 +339,18 @@ void setup() {
 void loop() {
 
   // Peripheral debugging: set debugMode to true, then uncomment one debug call
-  //debug(DBG_OLED);
+  //debug(DBG_UI);
   //debug(DBG_IMU);
   //debug(DBG_GPS);
   //debug(DBG_SD_CARD);
   //debug(DBG_HOST);
   //debug(DBG_LORA);
-  //debug(DBG_SENSE);
 
   // Debug mode: keep looping
   if (debugMode) {
     return;
   }
 
-  // All work runs in sensingLoop (core 0) and networkLoop (core 1)
+  // All work runs in v2sLoop (core 0) and v2vLoop (core 1)
   vTaskDelete(NULL);    // end the Arduino loop task (frees core 1)
 }

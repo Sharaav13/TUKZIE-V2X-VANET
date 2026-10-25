@@ -6,8 +6,8 @@ Diagrams of the node firmware in `src/` and `include/` (ESP32-S3, Arduino + Free
 2. [UML sequence diagram](#2-uml-sequence-diagram-dual-core-runtime): how the two cores, the radio and the host interact
 3. [UML state diagram](#3-uml-state-diagram-vanet-mac-csmaca): VANET MAC (CSMA/CA)
 4. [Flow: boot](#4-flow-boot-setup-and-loop): `setup()` and `loop()`
-5. [Flow: sensing task](#5-flow-sensing-task-core-0): `sensingLoop()` on core 0
-6. [Flow: network task](#6-flow-network-task-core-1): `networkLoop()` on core 1
+5. [Flow: sensing task](#5-flow-sensing-task-core-0): `v2sLoop()` on core 0
+6. [Flow: network task](#6-flow-network-task-core-1): `v2vLoop()` on core 1
 7. [Flow: speed fusion](#7-flow-speed-fusion-speedfilterimuupdate): `SpeedFilter::imuUpdate()`
 8. [Flow: road awareness and messages](#8-flow-road-awareness-and-message-priority): `checkAccident()`, `checkTerrain()`, `checkBattery()`, `sortMsg()`
 9. [Flow: overview](#9-flow-overview): simplified view of the whole firmware
@@ -28,10 +28,14 @@ classDiagram
         +byte destId
         +byte srcId
         +uint16_t seq
+        +uint8_t ttl
         +int8_t srcRssi
         +float pktRssi
         +float snr
         +float freqErr
+        +int64_t utc
+        +uint32_t airUs
+        +uint8_t sync
         +byte id
         +float lat
         +float lon
@@ -69,7 +73,7 @@ classDiagram
         +uint8_t dest
         +uint8_t src
         +uint16_t seq
-        +int8_t rssi
+        +uint8_t ttl
         +uint8_t message
         +uint32_t date
         +uint32_t time
@@ -112,6 +116,9 @@ classDiagram
         +init() bool
         +rx() bool
         +readPacket(size) void
+        +queueForward(pkt) void
+        +forwardDue() bool
+        +forward(node) bool
         +clearBuffer() void
         +startBackoff() void
         +backoffActive() bool
@@ -127,10 +134,21 @@ classDiagram
     }
 
     %% ---------------- Sensing (sensing.h / sensing.cpp) ----------------
+    class UtcClock {
+        <<struct>>
+        +volatile int64_t ppsUs
+        +int64_t anchorUs
+        +int64_t anchorUtc
+        +double rate
+        +pair(utcSecond) void
+        +toUtc(localUs, sync) int64_t
+    }
+
     class GPS {
         <<struct>>
         +HardwareSerial uart = UART1
         +TinyGPSPlus tinyGps
+        +int32_t lastUtcSecond
         +bool detected
         +bool fix
         +float lastSpeed
@@ -236,9 +254,12 @@ classDiagram
         +configNode() String
         +read(file) String
         +write(content, file) void
+        +formatSensing(node) String$
+        +formatVanet(event, node) String$
+        +formatMyself(node) String$
     }
 
-    %% ---------------- Display (display.h / display.cpp) ----------------
+    %% ---------------- UI (ui.h / ui.cpp) ----------------
     class OLED {
         <<struct>>
         +Adafruit_SSD1306 dev
@@ -263,7 +284,7 @@ classDiagram
         +update() void
     }
 
-    %% ---------------- Main and diagnostics ----------------
+    %% ---------------- Main and debugging ----------------
     class Main {
         <<module main.cpp>>
         +bool debugMode$
@@ -272,30 +293,27 @@ classDiagram
         +bool gpsReady$
         +bool imuReady$
         +bool vanetReady$
-        +TaskHandle_t sensingTask$
-        +TaskHandle_t networkTask$
+        +TaskHandle_t v2sTask$
+        +TaskHandle_t v2vTask$
         +SemaphoreHandle_t myselfMutex$
         +setup() void$
         +loop() void$
-        +sensingLoop(param) void$
-        +networkLoop(param) void$
+        +v2sLoop(param) void$
+        +v2vLoop(param) void$
         +copyMyself() Data$
         +initStatus(name, ready) String$
         +showInit(name, ready, append, holdMs) void$
     }
 
-    class Diagnostics {
-        <<module diagnostics.cpp>>
+    class Debugging {
+        <<module debugging.cpp>>
         +debug(peripheral) void$
-        +oledDebug() void$
-        +sdDebug() void$
+        +uiDebug() void$
+        +storageDebug() void$
         +gpsDebug() void$
         +imuDebug() void$
         +hostDebug() void$
         +loraDebug(select) void$
-        +formatSensing(node) String$
-        +formatVanet(event, node) String$
-        +formatMyself(node) String$
     }
 
     %% ---------------- External libraries ----------------
@@ -353,9 +371,9 @@ classDiagram
     OLED ..> Host : present
     OLED ..> Interpret : codedStatus, codedMessages
 
-    Main ..> Diagnostics : debugMode only
+    Main ..> Debugging : debugMode only
     note for Main "Uses every module: setup() inits each one,
-sensingLoop() on core 0 and networkLoop() on core 1 drive them"
+v2sLoop() on core 0 and v2vLoop() on core 1 drive them"
 ```
 
 ---
@@ -368,10 +386,10 @@ After `setup()`, the work is split across two FreeRTOS tasks. Core 0 writes `mys
 sequenceDiagram
     autonumber
     participant HW as Host system (UART2)
-    participant S as sensingLoop (core 0)
+    participant S as v2sLoop (core 0)
     participant M as myself + myselfMutex
     participant F as msgFlags + msgFlagsMutex
-    participant N as networkLoop (core 1)
+    participant N as v2vLoop (core 1)
     participant V as Vanet
     participant L as LoRa lib + SX127x
     participant ISR as loraDio0ISR
@@ -383,7 +401,7 @@ sequenceDiagram
         S->>M: myself.speed = speedFilter.getSpeed()
         S->>F: checkAccident() / checkTerrain() setMsgFlag(1, 3, 4)
         HW-->>S: "$status,tasks,battery,dest,message\n"
-        S->>M: host.rx() writes status, tasks, battery, destId (message only if 5)
+        S->>M: host.rx() writes status, tasks, battery, destId (message only if 4)
         S->>F: checkBattery() setMsgFlag(2) if host present
         S->>M: give mutex
     end
@@ -398,19 +416,27 @@ sequenceDiagram
             V->>V: startBackoff() (0-300 ms random)
             V->>L: handleDio0Rise()
             L->>V: onLoraReceive(size) to readPacket(size)
-            V->>V: size == 25 and dest is me or 0: unpack, pktRssi/snr, cluster.update, peerMsg, log RX
+            V->>V: repeat of a (src, seq) read in the last 30 s: dropped
+            V->>V: size == 25 and dest is me or 0: unpack, pktRssi/snr, cluster.update (direct only, ttl 2), peerMsg, log RX
+            V->>V: size == 25 and dest is another node (not me, not 0): queueForward (ttl - 1, not at 0)
+        end
+        N->>V: forwardDue()?
+        alt packet queued, back-off over and channel free
+            N->>V: forward(fwd)
+            V->>L: beginPacket, write the queued 25 bytes as received, endPacket, receive()
+            N->>N: log FW
         end
         N->>V: beaconDue()?
         alt interval elapsed, back-off over and channel free
             N->>M: copyMyself()
-            N->>F: host message (5) if set, else sortMsg() (highest priority code, clears flag)
+            N->>F: host message (4) if set, else sortMsg() (highest priority code, clears flag)
             N->>V: tx(me)
-            V->>L: seq + 1, srcRssi = LoRa.rssi(), beginPacket, write 25 bytes, endPacket, receive()
-            N->>N: lights.flash(msgColours[code]), log TX, clear host message once sent
+            V->>L: seq + 1, ttl = 2, srcRssi = LoRa.rssi(), beginPacket, write 25 bytes, endPacket, receive()
+            N->>N: lights.flash(green, blue for the host message), log TX, clear host message once sent
         end
         N->>V: cluster.removeStale() every 1 s
         N->>M: copyMyself()
-        N->>HW: host.tx(): "$myself\n" then "$peer\n" per peer (every 1 s)
+        N->>HW: host.tx(): "$id,myself\n" then "#id,peer\n" per peer (every 1 s)
         N->>N: oled.showNode() (every 1 s or on Rx)
         N->>N: lights.update()
     end
@@ -452,7 +478,7 @@ stateDiagram-v2
 flowchart TD
     A([Power on / reset]) --> B["Serial.begin(115200)"]
     B --> C["Create errors.mutex and msgFlagsMutex"]
-    C --> D["lights.init() RGB LED"]
+    C --> D["lights.init() RGB LED, white until the first init result"]
     D --> E["hostReady = host.init() UART2 + RX pull-up"]
     E --> F["oled.init() I2C SSD1306 @0x3C"]
     F --> G["Splash: 'TUKZIE V2X' 2 s, 'Booting...' 2 s"]
@@ -483,8 +509,8 @@ flowchart TD
     Q -- no --> R["Create myselfMutex"]
     R --> S{"Any mutex NULL?"}
     S -- yes --> S1["reportError, show errors, RGB red, return (halt)"]
-    S -- no --> T["xTaskCreatePinnedToCore sensingLoop on core 0"]
-    T --> U["xTaskCreatePinnedToCore networkLoop on core 1"]
+    S -- no --> T["xTaskCreatePinnedToCore v2sLoop on core 0"]
+    T --> U["xTaskCreatePinnedToCore v2vLoop on core 1"]
     U --> V["loop(): vTaskDelete(NULL), Arduino loop task ends"]
 
     subgraph showInit["showInit(name, ready)"]
@@ -499,7 +525,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A([sensingLoop start]) --> B{"imuReady?"}
+    A([v2sLoop start]) --> B{"imuReady?"}
     B -- yes --> C["speedFilter.update()"]
     C --> C1{"≥ 10 ms since lastFusion?"}
     C1 -- yes --> C2{"1 ms < dt < 100 ms?"}
@@ -522,7 +548,7 @@ flowchart TD
     F --> G{"imuReady?"}
     G -- yes --> G1["checkAccident()"] --> G2["checkTerrain()"] --> H
     G -- no --> H{"hostReady?"}
-    H -- yes --> H1["host.rx(): parse '$status,tasks,battery,dest,message\n' into myself (message only if 5)"] --> I
+    H -- yes --> H1["host.rx(): parse '$status,tasks,battery,dest,message\n' into myself (message only if 4)"] --> I
     H -- no --> I{"host.present()? (valid packet < 10 s ago)"}
     I -- yes --> I1["checkBattery()"] --> J
     I -- no --> J["Give myselfMutex"]
@@ -536,7 +562,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A([networkLoop start]) --> B{"vanetReady?"}
+    A([v2vLoop start]) --> B{"vanetReady?"}
     B -- no --> H
 
     B -- yes --> C["received = vanet.rx()"]
@@ -544,20 +570,32 @@ flowchart TD
     C1 -- no --> D
     C1 -- yes --> C2["rxFlag = false, startBackoff() random 0-300 ms"]
     C2 --> C3["LoRa.handleDio0Rise() then onLoraReceive(size) then readPacket(size)"]
-    C3 --> C4{"size == 25 bytes AND<br/>dest == my ID or 0?"}
+    C3 --> C4{"size == 25 bytes?"}
     C4 -- no --> D
-    C4 -- yes --> C5["Read bytes, Packet.unpack into rxBuffer, add pktRssi, snr, freqErr"]
-    C5 --> C6["cluster.update(rxBuffer): add or refresh peer (max 3)"]
-    C6 --> C7["peerMsg / peerMsgId = sender's message"]
-    C7 --> C8["storage.write(formatVanet('RX', rxBuffer), log.txt)"]
-    C8 --> D
+    C4 -- yes --> CD{"(src, seq) already read<br/>in the last 30 s?"}
+    CD -- yes --> CD1["Drop the repeat"] --> D
+    CD -- no --> CF{"dest is another node<br/>(not me, not 0)?"}
+    CF -- yes --> CF1{"ttl - 1 > 0 AND<br/>queue not full?"}
+    CF1 -- yes --> CF2["queueForward: ttl - 1, queued as received"] --> D
+    CF1 -- no --> D
+    CF -- no --> C5["Packet.unpack into rxBuffer, add pktRssi, snr, freqErr"]
+    C5 --> CT{"ttl == 2?<br/>(heard straight from the sender)"}
+    CT -- yes --> C6["cluster.update(rxBuffer): add or refresh peer (max 3)"] --> C7
+    CT -- no --> C7["peerMsg / peerMsgId / peerMsgAt = sender's message"]
+    C7 --> C8["storage.write(formatVanet('RX', rxBuffer), vanet_log{ID}.txt)"]
+    C8 --> F0
+
+    F0{"vanet.forwardDue()?<br/>packet queued AND<br/>back-off over AND<br/>!receiving()"}
+    F0 -- yes --> F1["vanet.forward(fwd): send the oldest queued packet as received, receive()"]
+    F1 --> F2["storage.write(formatVanet('FW', fwd), vanet_log{ID}.txt)"] --> D
+    F0 -- no --> D
 
     D{"vanet.beaconDue()?<br/>≥ 2 s since lastTx AND<br/>back-off over AND<br/>!receiving()"}
     D -- no --> G
     D -- yes --> E["me = copyMyself(), me.message = 5 if the host set it, else sortMsg()"]
-    E --> E1["vanet.tx(me): seq + 1, srcRssi = LoRa.rssi(), Packet.pack, beginPacket, write 25 B, endPacket, receive()"]
+    E --> E1["vanet.tx(me): seq + 1, ttl = 2, srcRssi = LoRa.rssi(), Packet.pack, beginPacket, write 25 B, endPacket, receive()"]
     E1 --> E2{"Sent?"}
-    E2 -- yes --> E3["lights.flash(msgColours[message]), 500 ms,<br/>log TX, clear the host message"]
+    E2 -- yes --> E3["lights.flash(green, or blue for the host message), 500 ms,<br/>log TX, clear the host message"]
     E2 -- no --> E4{"message != 0 AND not the host message?"}
     E4 -- yes --> E5["setMsgFlag(message), retry next beacon"]
     E4 -- no --> G
@@ -566,23 +604,23 @@ flowchart TD
 
     G{"≥ 1 s since cluster.lastCheck?"}
     G -- yes --> G1["cluster.removeStale(): drop peers silent > 10 s"]
-    G1 --> G2{"Removed any AND peerMsgId gone?"}
+    G1 --> G2{"peerMsgId not in the cluster AND<br/>peerMsg older than 10 s?"}
     G2 -- yes --> G3["peerMsg = 0"] --> H
     G2 -- no --> H
     G -- no --> H
 
     H{"hostReady AND ≥ 1 s since host.lastTx?"}
     H -- yes --> H1["me = copyMyself(), me.message = vanet.lastMsg, me.seq = txSeq, me.srcRssi = txRssi"]
-    H1 --> H2["host.tx(): '$myself\n' then '$peer\n' per cluster peer"]
+    H1 --> H2["host.tx(): '$id,myself\n' then '#id,peer\n' per cluster peer"]
     H2 --> I
     H -- no --> I
 
     I{"received OR ≥ 1 s since oled.lastShow?"}
     I -- yes --> I1["oled.showNode(copyMyself()): signal bars (average peer SNR), speed, battery, status, lat/lon, peers, latest peer message"]
     I1 --> J
-    I -- no --> J["lights.update(): end the flash after 500 ms"]
+    I -- no --> J["lights.setBackground(): red if detected(1), else purple if detected(2),<br/>else orange if detected(3) (each held 200 ms), else yellow without a GPS fix, else off; lights.update(): end the flash after 500 ms"]
 
-    J --> K["Every 1 s: log node.txt and sensing.txt"]
+    J --> K["Every 1 s: log myself_log{ID}.txt and sensor_log{ID}.txt"]
     K --> L["vTaskDelay(1)"]
     L --> B
 ```
@@ -630,25 +668,16 @@ flowchart TD
 flowchart TD
     subgraph ACC["checkAccident()"]
         direction TB
+        A5{"Impact: magnitude of a ≥ 3 g?<br/>(any direction, gravity included)"} -- yes --> A3["setMsgFlag(1) Met with accident"]
         A1{"|ax| ≥ 0.8 g OR |ay| ≥ 0.8 g OR az ≤ -0.8 g?<br/>(on its side / upside down)"}
-        A1 -- yes --> A2{"Held ≥ 10 s?"} -- yes --> A3["setMsgFlag(1) Met with accident"]
-        A1 -- no --> A4["force = false"]
-        A5{"Any |gyro axis| ≥ 90 dps?"}
-        A5 -- yes --> A6{"Held ≥ 1 s?"} -- yes --> A3
-        A5 -- no --> A7["spinning = false"]
+        A1 -- yes --> A2{"Held ≥ 10 s?"} -- yes --> A3
+        A1 -- no --> A4["toppled = false"]
     end
 
     subgraph TER["checkTerrain()"]
         direction TB
-        T1["acc_z = az - accBias z"] --> T2{"Crossed up through 0.8 g?<br/>(re-armed below 0.6 g)"}
-        T2 -- yes --> T3["Open 500 ms window if closed, vibrationCount++"]
-        T2 -- no --> T4
-        T3 --> T4{"Window open AND ≥ 500 ms?"}
-        T4 -- yes --> T5{"count ≥ 3?"}
-        T5 -- yes --> T6["setMsgFlag(3) Rough terrain"]
-        T5 -- no --> T7["setMsgFlag(4) Potholes"]
-        T6 --> T8["Close window, count = 0"]
-        T7 --> T8
+        T1["acc_z = az - accBias z (gravity removed)"] --> T2{"abs(acc_z) ≥ 0.8 g<br/>AND speed ≥ 5 km/h?"}
+        T2 -- yes --> T3["setMsgFlag(3) Bad terrain"]
     end
 
     subgraph BAT["checkBattery() (only while host present)"]
@@ -658,8 +687,8 @@ flowchart TD
 
     subgraph PRI["sortMsg() at each beacon (core 1)"]
         direction TB
-        P0["Host message (5) set? Sent first, flags left pending"] --> P1["Lock msgFlagsMutex"]
-        P1 --> P2["Pick lowest set code (1 accident > 2 battery > 3 terrain > 4 potholes), clear it"]
+        P0["Host message (4) set? Sent first, flags left pending"] --> P1["Lock msgFlagsMutex"]
+        P1 --> P2["Pick lowest set code (1 accident > 2 battery > 3 bad terrain), clear it"]
         P2 --> P3["Unlock, return code (0 = none)"]
         P3 --> P4["Beacon carries code, RGB flashes:<br/>0 green, 1 red, 2 purple, 3 orange, 4 yellow, 5 blue"]
     end
@@ -674,38 +703,45 @@ flowchart TD
 
 ## 9. Flow: overview
 
-A simplified view of the whole firmware: boot, then two tasks running in parallel, one per core. They share the node's own state (`myself`) and the pending message flags, both protected by mutexes.
+A simplified view of the whole firmware: boot, then two tasks running in parallel, one per core. The V2S task (core 0) writes the node's own state (`myself`) and raises message flags; the V2V task (core 1) reads them. Both are protected by mutexes.
 
 ```mermaid
 flowchart TD
-    A([Power on]) --> B["Initialise peripherals<br/>RGB LED, host UART, OLED,<br/>SD card, GPS, IMU, LoRa"]
-    B --> C["Load node ID<br/>from SD card config"]
+    A([Power on]) --> B["Initialise peripherals<br/>RGB LED, host UART, OLED, SD card,<br/>GPS + PPS, IMU (calibrate), LoRa"]
+    B --> C["Load node ID from SD config,<br/>name and clear log files"]
     C --> D{"Boot errors?"}
     D -- yes --> E["Show errors on OLED,<br/>RGB red"] --> F
     D -- no --> F["Start two FreeRTOS tasks"]
     F --> S1
     F --> N1
 
-    subgraph CORE0["Core 0: Sensing task"]
+    subgraph CORE0["Core 0: V2S task"]
         direction TB
-        S1["Read GPS<br/>time, position, course"] --> S2["Fuse GPS + IMU speed<br/>(Kalman filter)"]
-        S2 --> S3["Detect road events<br/>accident, terrain, potholes"]
-        S3 --> S4["Read status, tasks, battery<br/>from host"]
+        S1["Read GPS: time, position, course<br/>pair PPS edge with UTC second"] --> S2["Fuse GPS + IMU speed<br/>(Kalman filter, 100 Hz predict)"]
+        S2 --> S3["Detect road events<br/>accident, bad terrain"]
+        S3 --> S4["Read status, tasks, battery,<br/>destination, host message"]
         S4 --> S5["Write node state,<br/>raise message flags"]
         S5 --> S1
     end
 
-    subgraph CORE1["Core 1: Network task"]
+    subgraph CORE1["Core 1: V2V task"]
         direction TB
-        N1["Receive peer packets (LoRa)<br/>update cluster, back off"] --> N2{"Beacon due and<br/>channel free?"}
-        N2 -- yes --> N3["Broadcast own packet +<br/>top-priority message,<br/>flash RGB"]
-        N2 -- no --> N4
-        N3 --> N4["Remove peers silent<br/>for 10 s"]
-        N4 --> N5["Send own data + peers<br/>to host"]
-        N5 --> N6["Update OLED view"]
-        N6 --> N1
+        N1["Receive LoRa packet (if any)<br/>start back-off, drop repeats"] --> N1a{"Addressed to me<br/>or broadcast?"}
+        N1a -- yes --> N1b["Read packet, update cluster<br/>(direct senders only), log RX"]
+        N1a -- no --> N1c["Queue for forwarding<br/>(TTL − 1, not sent at 0)"]
+        N1b --> N2
+        N1c --> N2{"Forward queued and<br/>transmission due?"}
+        N2 -- yes --> N3["Forward packet, log FW"] --> N4
+        N2 -- no --> N4{"No forward queued and<br/>transmission due?"}
+        N4 -- yes --> N5["Broadcast own packet +<br/>top-priority message,<br/>flash RGB, log TX"] --> N6
+        N4 -- no --> N6["Remove peers silent<br/>for 30 s"]
+        N6 --> N7["Send own data + peers<br/>to host (every 1 s)"]
+        N7 --> N8["Update OLED and RGB,<br/>write SD logs"]
+        N8 --> N1
     end
 
+    TD["Transmission due: 15 s since last<br/>beacon or forward, back-off over,<br/>channel free. Forwards take<br/>priority over my beacon"]
+    N4 ~~~ TD
     SH[("Shared: node state +<br/>message flags (mutex)")]
     CORE0 -. writes .-> SH
     CORE1 -. reads .-> SH

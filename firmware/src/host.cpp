@@ -40,14 +40,14 @@ bool Host::init(void) {
 }
 
 /*
-  Transmits myself and a table of nodes to the host, one packet per node: "$<node>\n"
+  Transmits myself and a table of nodes to the host, one packet per node: "$id,<node>\n" then "#id,<node>\n" per peer
   me: a copy of myself
 */
 void Host::tx(const Data &me, Data table[], uint8_t size) {
 
-  String payload = String(HOST_START) + me.toStr() + "\n";
+  String payload = String(HOST_START) + String(me.id) + "," + me.toStr() + "\n";
   for (uint8_t i = 0; i < size; i++) {
-    payload += String(HOST_START) + table[i].toStr() + "\n";
+    payload += String(HOST_PEER) + String(table[i].id) + "," + table[i].toStr() + "\n";
   }
 
   uart.print(payload);

@@ -15,10 +15,11 @@
 // Coded messages and status (index = code)
 extern const char *const codedMessages[];   // MSG_COUNT entries
 extern const char *const codedStatus[];    // STATUS_COUNT entries
-extern const uint8_t msgColours[];         // RGB colour flashed for each message on Tx (MSG_COUNT entries)
+extern const uint8_t msgColours[];         // RGB colour of each message (MSG_COUNT entries): Tx flashes and steady condition lights
 
 // Protects the message flags (lock order: myselfMutex first)
 extern SemaphoreHandle_t msgFlagsMutex;
+
 
 //*************************************************************************************************************************************************
 // FUNCTIONS
@@ -29,14 +30,15 @@ extern SemaphoreHandle_t msgFlagsMutex;
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
-  Flags an accident from prolonged large force or spinning
+  Flags an accident from a sharp impact (ACCIDENT_G or more), or from lying on its side or upside down
+  for TOPPLE_DURATION
   Uses the latest imu.getAll() readings (no extra I2C reads)
 */
 void checkAccident(void);
 
 /*
-  Flags rough terrain or potholes from vertical vibrations
-  VIBR_CNT_THRESHOLD or more in the window => rough terrain, fewer => pothole
+  Flags bad terrain (a bump, pothole or rough surface): the vertical acceleration, gravity removed, reaches TERRAIN_G
+  either way, only while moving at ROAD_MIN_SPEED or faster
 */
 void checkTerrain(void);
 
@@ -52,6 +54,12 @@ void checkBattery(void);
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 // Messages
 // ------------------------------------------------------------------------------------------------------------------------------------------------
+
+/*
+  Returns true while a condition is detected, and for LIGHT_HOLD_MS after it was last detected (for the RGB light)
+  code: message code of the condition (1 accident, 2 low battery, 3 bad terrain)
+*/
+bool detected(uint8_t code);
 
 /*
   Marks a message as pending (safe from both cores)

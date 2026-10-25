@@ -1,10 +1,10 @@
 //*************************************************************************************************************************************************
 // TUKZIE V2X VANET (TVV)
-// NODE FIRMWARE - DIAGNOSTICS
+// NODE FIRMWARE - DEBUGGING
 //*************************************************************************************************************************************************
 
-#ifndef TVV_DIAGNOSTICS_H
-#define TVV_DIAGNOSTICS_H
+#ifndef TVV_DEBUGGING_H
+#define TVV_DEBUGGING_H
 
 #include "system.h"
 
@@ -18,27 +18,28 @@
 
 /*
   Runs the debug routine of the selected peripheral
-  peripheral: DBG_OLED, DBG_SD_CARD, DBG_GPS, DBG_IMU, DBG_HOST, DBG_LORA_RX, DBG_LORA_TX, DBG_LORA or DBG_SENSE
+  peripheral: DBG_UI, DBG_SD_CARD, DBG_GPS, DBG_IMU, DBG_HOST, DBG_LORA_RX, DBG_LORA_TX or DBG_LORA
 */
 void debug(uint8_t peripheral);
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
-// OLED
+// User Interface
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
-  Shows the same test message on the OLED and the Serial Monitor every OLED_TEST_INTVL
+  Every UI_TEST_INTVL: sets the RGB LED to its next colour (cycling through all of them) and shows the same test
+  message, with that colour's name, on the OLED and the Serial Monitor
 */
-void oledDebug(void);
+void uiDebug(void);
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
-// SD Card
+// Storage
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
   Writes a test line to DEBUG_FILE (shown on the OLED) and reads the file back to Serial
 */
-void sdDebug(void);
+void storageDebug(void);
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 // GPS
@@ -57,17 +58,6 @@ void gpsDebug(void);
   Displays all IMU data periodically
 */
 void imuDebug(void);
-
-// ------------------------------------------------------------------------------------------------------------------------------------------------
-// Sensing
-// ------------------------------------------------------------------------------------------------------------------------------------------------
-
-/*
-  Runs the sensing (GPS, IMU and speed fusion) as sensingLoop() does, and writes a line to SENSE_FILE every
-  SENSE_LOG_INTVL (also shown on Serial)
-  Call every loop: the speed filter needs its 100 Hz IMU updates
-*/
-void senseDebug(void);
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 // Host
@@ -89,29 +79,4 @@ void hostDebug(void);
 */
 void loraDebug(uint8_t select);
 
-// ------------------------------------------------------------------------------------------------------------------------------------------------
-// Log Formatting
-// ------------------------------------------------------------------------------------------------------------------------------------------------
-
-/*
-  Formats a sensing (GPS and IMU) log line for SENSE_FILE
-  node: a copy of myself (IMU values come from imu)
-  Line: ms,date,time,lat,lon,alt,speed,course,sats,hdop,ax,ay,az,gx,gy,gz
-*/
-String formatSensing(const Data &node);
-
-/*
-  Formats a VANET log line for LOG_FILE
-  event: "RX" or "TX"
-  Line: ms,event,src,<node>,snr,freqErr
-  <node> is Data::toStr(): date,time,lat,lon,alt,speed,course,status,tasks,battery,message,seq,srcRssi,pktRssi
-*/
-String formatVanet(const char *event, const Data &node);
-
-/*
-  Formats all of a node's data for NODE_FILE or DEBUG_FILE
-  Line: ms,id,<node>
-*/
-String formatMyself(const Data &node);
-
-#endif // TVV_DIAGNOSTICS_H
+#endif // TVV_DEBUGGING_H

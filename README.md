@@ -7,13 +7,14 @@ A vehicle-to-everything (V2X) vehicular ad hoc network (VANET) built on LoRa. Ea
 ## Features
 
 - **LoRa network:** 433 MHz, SF7, 25-byte binary beacons every 15 s, broadcast or addressed to one node (provision for destination-based routing), with a CSMA/CA-style MAC (carrier sense plus a random back-off after each received packet).
-- **Link quality:** each beacon carries a sequence number (gaps = lost packets) and the sender's channel RSSI; the receiver also records the packet's RSSI and SNR.
-- **Cluster of peers:** up to 3 peers, refreshed on every packet and dropped after 10 s of silence.
+- **Link quality:** each beacon carries a sequence number (gaps = lost packets); the receiver records the packet's RSSI and SNR, and the sender logs its own channel RSSI before each beacon.
+- **Forwarding:** a packet addressed to another node (not broadcast) is sent on unchanged (same sender and sequence number) with its TTL decremented, so a node the sender cannot reach still gets it (hidden terminal problem). TTL starts at 2, so a packet is forwarded at most once.
+- **Cluster of peers:** up to 3 peers, refreshed on every packet and dropped after 30 s of silence.
 - **Sensor fusion:** GPS speed (1 Hz) and IMU acceleration (100 Hz) fused by a 2-state Kalman filter, with stop detection and zero-velocity updates.
-- **Road awareness:** detects accidents (toppled over, or spinning), rough terrain and potholes from the IMU, and low battery from the host. The highest-priority event goes out with each beacon, and a message from the host goes out before all of them.
+- **Road awareness:** detects accidents (a sharp impact of 7 g or more, or lying toppled for 10 s), bad terrain from the IMU (a bump, pothole or rough surface: a vertical jolt of 0.8 g or more either way, only while moving), and low battery from the host. The highest-priority event goes out with each beacon, and a message from the host goes out before all of them.
 - **Host link:** sends the node and its cluster to the host every second, and receives the node's status, number of tasks, battery level, beacon destination and a host message.
 - **Dual-core:** sensing runs on core 0, networking and the user interface on core 1 (FreeRTOS), with mutex-protected shared state.
-- **On-node UI:** a 128×64 OLED shows signal bars (average SNR of the peers), speed, battery, status, position, peers and the latest peer message. An RGB LED flashes the colour of each message sent.
+- **On-node UI:** a 128×64 OLED shows signal bars (average SNR of the peers), speed, battery, status, position, peers and the latest peer message. An RGB LED flashes green on each beacon sent (blue when it carries the host message). Between flashes it shows what is detected right now (each colour held for 200 ms after its condition was last seen), in message priority: red during an accident, purple while the battery is low, orange during bad terrain, then yellow while there is no GPS fix.
 - **SD card logs:** VANET Rx/Tx, the node's own data and sensing, written to fresh files on every boot (`config.txt` is kept).
 
 ## Repository layout
@@ -34,7 +35,7 @@ A vehicle-to-everything (V2X) vehicular ad hoc network (VANET) built on LoRa. Ea
 |---|---|---|
 | 4D Systems gen4 ESP32-S3 R8N16 | | |
 | LoRa radio (SX127x, 433 MHz) | SPI (HSPI) | SCK 39, MISO 40, MOSI 41, NSS 42, RST 38, DIO0 21 |
-| GPS (NMEA, 9600 baud) | UART1 | RX 17, TX 18 |
+| GPS (NMEA, 9600 baud) | UART1 | RX 17, TX 18, PPS 16 |
 | IMU (LSM6) | I2C (`Wire1`) | SDA 8, SCL 9 |
 | OLED SSD1306 128×64 @ 0x3C | I2C (`Wire`) | SDA 4, SCL 5 |
 | microSD card | SPI (FSPI) | CS 10, MOSI 11, SCK 12, MISO 13 |
@@ -61,21 +62,21 @@ All pins and settings are defined in [`include/system.h`](firmware/include/syste
    pio device monitor
    ```
 
-During boot the OLED shows each peripheral's init result, and the RGB LED blinks green (pass) or red (fail). Keep the node still while it boots, because the IMU calibrates then.
+At power-on the RGB LED lights white. During boot the OLED shows each peripheral's init result, and the RGB LED blinks green (pass) or red (fail). Keep the node still while it boots, because the IMU calibrates then.
 
 ## Firmware modules
 
 | File | Responsibility |
 |---|---|
-| `main.cpp` | Boot sequence, and the two FreeRTOS tasks: `sensingLoop` (core 0) and `networkLoop` (core 1) |
+| `main.cpp` | Boot sequence, and the two FreeRTOS tasks: `v2sLoop` (core 0) and `v2vLoop` (core 1) |
 | `system.cpp` | Shared `Data` struct (the node's own state `myself`), error reporting |
 | `sensing.cpp` | `GPS`, `IMU`, `KalmanFilter` and `SpeedFilter` (GPS + IMU speed fusion) |
 | `interpret.cpp` | Coded messages and statuses, accident, terrain and battery detection, message priority |
 | `vanet.cpp` | LoRa radio, `Packet` packing, MAC (back-off, carrier sense), `Cluster` of peers |
 | `host.cpp` | UART link to the host |
-| `display.cpp` | OLED node view and RGB LED |
-| `storage.cpp` | SD card: node config and log files |
-| `diagnostics.cpp` | Per-peripheral debug routines and log line formatting |
+| `ui.cpp` | OLED node view and RGB LED |
+| `storage.cpp` | SD card: node config, log files and log line formatting |
+| `debugging.cpp` | Per-peripheral debug routines |
 
 Detailed diagrams are in [`firmware/docs/firmware-diagrams.md`](firmware/docs/firmware-diagrams.md):
 
@@ -95,13 +96,18 @@ Detailed diagrams are in [`firmware/docs/firmware-diagrams.md`](firmware/docs/fi
 
 ### LoRa packet (25 bytes)
 
-| dest | src | seq | rssi | message | date | time | lat | lon | status | tasks | battery |
+| dest | src | seq | ttl | message | date | time | lat | lon | status | tasks | battery |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | 1 | 2 | 1 | 1 | 4 | 4 | 4 | 4 | 1 | 1 | 1 |
 
-- `dest`: destination node ID, `0` = broadcast. A node only reads packets addressed to it or broadcast. A non-zero `dest` hides the sender from every other node's cluster.
+- `dest`: destination node ID, `0` = broadcast. A node reads packets addressed to it or broadcast, and forwards packets addressed to any other node. A non-zero `dest` hides the sender from every other node's cluster.
 - `seq`: the sender's beacon count, incremented on every beacon sent (wraps at 65535). Gaps show lost packets.
-- `rssi`: the sender's `LoRa.rssi()` in dBm just before it sent, i.e. the channel noise level at the sender.
+- `ttl`: hops left, `2` when sent. A node forwarding the packet decrements it first and does not send it at `0`. Broadcasts (`dest = 0`) are not forwarded.
+
+Forwarding: when a node receives a packet whose `dest` is another node (not itself, not `0`), it queues it unchanged (the `src` stays the original sender) with `ttl` − 1, and sends it like a beacon: after its random back-off, with the channel free.
+
+- **Repeats:** a node remembers the `(src, seq)` of the last 16 packets it read for 30 s, and drops a repeat. The destination therefore keeps only the first copy (direct or forwarded).
+- **Forwarded packets and the cluster:** a packet that reaches its destination through a forwarder (`ttl` below 2) is read and logged, but its sender is not added to the cluster, since it may be out of range. Only senders heard directly become peers.
 
 Latitude and longitude are sent as scaled integers (× 10⁷), and battery as a whole percentage. Altitude, speed and course are not sent, so they read 0 for peers. Date is `DDMMYY` and time is `HHMMSSCC`, both in SAST (UTC+2). Radio settings: 433.2125 MHz, BW 125 kHz, SF7, CR 4/5, sync word `0x12`, 10 dBm, CRC on.
 
@@ -109,29 +115,29 @@ Latitude and longitude are sent as scaled integers (× 10⁷), and battery as a 
 
 | Direction | Format |
 |---|---|
-| Node → host (every 1 s) | `$<node>\n` for the node itself, then one line per cluster peer |
+| Node → host (every 1 s) | `$id,<node>\n` for the node itself, then `#id,<node>\n` per cluster peer (a `$` starts each burst) |
 | Host → node | `$status,tasks,battery,dest,message\n` (all 5 fields required) |
 
 `<node>` is `date,time,lat,lon,alt,speed,course,status,tasks,battery,message,seq,srcRssi,pktRssi`:
 
+- `id`: the node ID of that line (the node's own ID on the first line, then each peer's).
 - `seq`: the node's last beacon sequence number.
-- `srcRssi`: that node's channel RSSI (dBm) sent in its beacon.
+- `srcRssi`: the node's own channel RSSI (dBm) before its last beacon, on its own line only (`0` for peers: packets no longer carry it).
 - `pktRssi`: how strongly this node received that node's last packet (dBm), `0` for the node itself.
 
-Host → node `message` is `0` (no change) or `5` (host message, sent once in the next beacon before any other message). `dest` sets the destination of the node's beacons, normally `0`. Battery is only known while a host is connected (a valid packet within 10 s).
+Host → node `message` is `0` (no change) or `4` (host message, sent once in the next beacon before any other message). `dest` sets the destination of the node's beacons, normally `0`. Battery is only known while a host is connected (a valid packet within 10 s).
 
 ### Coded messages and statuses
 
-| Code | Message | RGB flash | | Code | Status |
+| Code | Message | RGB light | | Code | Status |
 |---|---|---|---|---|---|
-| 0 | None | Green | | 0 | Parked |
-| 1 | Met with accident | Red | | 1 | Charging |
-| 2 | Low on battery (≤ 50 %) | Purple | | 2 | Delivering |
-| 3 | Rough terrain is present | Orange | | 3 | Taxi |
-| 4 | Potholes are present | Yellow | | | |
-| 5 | My host message (from the host) | Blue | | | |
+| 0 | None | Green flash on Tx | | 0 | Parked |
+| 1 | Met with accident | Red while detected | | 1 | Charging |
+| 2 | Low battery (≤ 50 %) | Purple while detected | | 2 | Delivering |
+| 3 | Bad terrain (bump, pothole or rough surface) | Orange while detected | | 3 | Taxi |
+| 4 | Custom host message (from the host) | Blue flash on Tx | | | |
 
-A lower message code has a higher priority, except the host message (5), which is always sent first. Each beacon carries the highest-priority pending message.
+A lower message code has a higher priority, except the host message (4), which is always sent first. Each beacon carries the highest-priority pending message.
 
 ## Debugging
 
@@ -141,7 +147,7 @@ Set `debugMode = true` in `main.cpp` and uncomment one `debug(DBG_...)` call in 
 
 Work in progress (version 0):
 
-- SD card logs (`log.txt`, `node.txt`, `sensing.txt`, `debug.txt`) are deleted at every boot, so copy them off before powering a node again.
+- SD card logs are named with the node ID, e.g. for node 7: `vanet_log7.txt` (VANET Rx, Tx and forwards), `sensor_log7.txt` (GPS and IMU), `myself_log7.txt` (all the node's data), plus `debug.txt`. A node deletes its own logs (and `debug.txt`) at every boot, so copy them off before powering it again.
 - All nodes must run the same firmware: nodes with a different packet size ignore each other.
 
 ## Author

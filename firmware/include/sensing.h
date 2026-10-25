@@ -12,11 +12,43 @@
 // STRUCTURES
 //*************************************************************************************************************************************************
 
+/*
+  UTC time base from the GPS PPS, for packet latency (both nodes share it, unlike their millis())
+
+  ppsISR() records the local µs (esp_timer) of each PPS edge, GPS::get() pairs it with the UTC second of the NMEA
+  time that follows it (an anchor), and toUtc() converts any local µs to µs since UTC midnight:
+    UTC(t) = anchorUtc + (t - anchorUs) / rate
+  rate (local µs per UTC µs) is measured between anchors, so the ESP32 clock error is corrected
+  Without PPS (no fix) the last anchor and rate keep running (holdover)
+*/
+struct UtcClock {
+
+  portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;   // ppsUs (ISR) and the anchor (core 0) are read on core 1
+
+  volatile int64_t ppsUs = 0;   // local µs of the latest PPS edge (0 = none yet)
+  int64_t anchorUs = 0;         // local µs of the PPS edge paired with a UTC second (0 = not synced)
+  int64_t anchorUtc = 0;        // that UTC second, µs since UTC midnight
+  double rate = 1.0;            // local µs per UTC µs
+
+  /*
+    Pairs the latest PPS edge with the UTC second of a newly parsed NMEA time
+    utcSecond: seconds since UTC midnight
+  */
+  void pair(int32_t utcSecond);
+
+  /*
+    Converts a local µs (esp_timer_get_time()) to µs since UTC midnight
+    sync: set to 0 = not synced (returns 0), 1 = PPS locked, 2 = holdover
+  */
+  int64_t toUtc(int64_t localUs, uint8_t &sync);
+};
+
 // GPS module
 struct GPS {
 
   HardwareSerial uart{1};       // UART1
   TinyGPSPlus tinyGps;          // NMEA parser
+  int32_t lastUtcSecond = -1;   // UTC second of the last NMEA time paired with PPS
 
   // Status
   bool detected = false;        // UART data received within GPS_TIMEOUT
@@ -213,8 +245,18 @@ struct SpeedFilter {
 // INSTANCES
 //*************************************************************************************************************************************************
 
+extern UtcClock utcClock;
 extern GPS gps;
 extern IMU imu;
 extern SpeedFilter speedFilter;
+
+//*************************************************************************************************************************************************
+// INTERRUPTS
+//*************************************************************************************************************************************************
+
+/*
+  GPS PPS: records the local µs of the edge in utcClock.ppsUs
+*/
+void IRAM_ATTR ppsISR();
 
 #endif // TVV_SENSING_H

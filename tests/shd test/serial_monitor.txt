@@ -1,0 +1,219 @@
+--- Terminal on COM15 | 115200 8-N-1
+--- Available filters and text transformations: debug, default, direct, esp32_exception_decoder, hexlify, log2file, nocontrol, printable, send_on_enter, time
+--- More details at https://bit.ly/pio-monitor-filters
+--- Quit: Ctrl+C | Menu: Ctrl+T | Help: Ctrl+T followed by Ctrl+H
+15:04:29.771 > A RX ME    1 Taxi       t=6  b=33%    m=2 seq=3     -117 dBm
+15:04:29.774 > A RX P1    2 Parked     t=0  b=100%   m=0 seq=2      -70 dBm
+15:04:29.907 > B RX ME    2 Parked     t=9  b=5%     m=0 seq=2      -93 dBm
+15:04:29.910 > B RX P1    1 Taxi       t=6  b=33%    m=2 seq=3      -65 dBm
+15:04:30.666 > A TX         Charging   t=4  b=50%    m=4 to=7
+15:04:36.292 > B RX ME    2 Parked     t=9  b=5%     m=2 seq=3      -91 dBm
+15:04:36.295 > B RX P1    1 Taxi       t=6  b=33%    m=2 seq=3      -65 dBm
+15:04:37.166 > B TX         Delivering t=8  b=92.8%  m=4 to=0 (all)
+15:04:43.666 > A TX         Delivering t=5  b=64.2%  m=4 to=3
+15:04:50.166 > B TX         Taxi       t=1  b=71%    m=0 to=3
+15:04:50.288 > A RX ME    1 Delivering t=5  b=64%    m=2 seq=3     -117 dBm
+15:04:52.772 > B RX ME    2 Taxi       t=1  b=71%    m=4 seq=4      -93 dBm
+15:04:52.775 > B RX P1    1 Taxi       t=6  b=33%    m=2 seq=3      -65 dBm
+15:04:55.667 > A TX         Charging   t=0  b=23.5%  m=0 to=2 (other)
+15:04:57.166 > B TX         Parked     t=0  b=100%   m=0 to=0 (all)
+15:04:58.667 > A TX         Parked     t=9  b=5%     m=0 to=7
+15:05:00.846 > B RX ME    2 Parked     t=0  b=100%   m=4 seq=4      -93 dBm
+15:05:02.167 > B TX         Taxi       t=6  b=33%    m=4 to=1 (other)
+15:05:05.667 > A TX         Delivering t=8  b=92.8%  m=4 to=0 (all)
+15:05:07.167 > B TX         Charging   t=4  b=50%    m=4 to=7
+15:05:08.667 > A TX         Taxi       t=1  b=71%    m=0 to=3
+15:05:09.249 > B RX ME    2 Charging   t=4  b=50%    m=4 seq=5      -91 dBm
+15:05:10.167 > B TX         Delivering t=5  b=64.2%  m=4 to=3
+15:05:10.667 > A TX         Parked     t=0  b=100%   m=0 to=0 (all)
+15:05:14.167 > B TX         Delivering t=8  b=92.8%  m=4 to=0 (all)
+15:05:17.667 > A TX         Parked     t=9  b=5%     m=0 to=7
+15:05:22.167 > B TX         Delivering t=5  b=64.2%  m=4 to=3
+15:05:25.732 > B RX ME    2 Delivering t=5  b=64%    m=4 seq=6      -94 dBm
+15:05:26.667 > A TX         Taxi       t=1  b=71%    m=0 to=3
+15:05:30.168 > B TX         Taxi       t=6  b=33%    m=4 to=1 (other)
+15:05:33.667 > A TX         Charging   t=4  b=50%    m=4 to=7
+15:05:35.168 > B TX         Charging   t=0  b=23.5%  m=0 to=1 (other)
+15:05:35.668 > A TX         Delivering t=8  b=92.8%  m=4 to=0 (all)
+15:05:39.168 > B TX         Parked     t=0  b=100%   m=0 to=0 (all)
+15:05:41.668 > A TX         Delivering t=5  b=64.2%  m=4 to=3
+15:05:42.214 > B RX ME    2 Parked     t=0  b=100%   m=4 seq=7      -93 dBm
+15:05:42.699 > A RX ME    1 Delivering t=5  b=64%    m=2 seq=3     -117 dBm
+15:05:42.702 > A RX P1    2 Parked     t=0  b=100%   m=4 seq=7      -66 dBm
+15:05:48.168 > B TX         Parked     t=9  b=5%     m=0 to=7
+15:05:52.184 > A RX ME    1 Delivering t=5  b=64%    m=4 seq=4     -116 dBm
+15:05:52.186 > A RX P1    2 Parked     t=0  b=100%   m=4 seq=7      -66 dBm
+15:05:54.668 > A TX         Taxi       t=6  b=33%    m=4 to=2 (other)
+15:05:56.168 > B TX         Taxi       t=1  b=71%    m=0 to=3
+15:05:57.668 > A TX         Charging   t=0  b=23.5%  m=0 to=2 (other)
+15:06:00.168 > B TX         Charging   t=4  b=50%    m=4 to=7
+15:06:02.668 > A TX         Delivering t=5  b=64.2%  m=4 to=3
+15:06:05.169 > B TX         Delivering t=8  b=92.8%  m=4 to=0 (all)
+15:06:06.669 > A TX         Charging   t=0  b=23.5%  m=0 to=2 (other)
+15:06:08.169 > B TX         Parked     t=9  b=5%     m=0 to=7
+15:06:08.666 > A RX ME    1 Charging   t=0  b=24%    m=4 seq=5     -117 dBm
+15:06:08.669 > A RX P1    2 Parked     t=0  b=100%   m=4 seq=7      -66 dBm
+15:06:08.675 > A TX         Taxi       t=1  b=71%    m=0 to=3
+15:06:08.717 > B RX ME    2 Parked     t=9  b=5%     m=4 seq=7      -93 dBm
+15:06:08.720 > B RX P1    1 Charging   t=0  b=24%    m=4 seq=5      -66 dBm
+15:06:12.702 > A RX ME    1 Taxi       t=1  b=71%    m=4 seq=5     -117 dBm
+15:06:13.169 > B TX         Charging   t=4  b=50%    m=4 to=7
+15:06:15.187 > B RX ME    2 Charging   t=4  b=50%    m=4 seq=8      -94 dBm
+15:06:15.189 > B RX P1    1 Charging   t=0  b=24%    m=4 seq=5      -66 dBm
+15:06:17.669 > A TX         Taxi       t=6  b=33%    m=4 to=2 (other)
+15:06:23.169 > B TX         Parked     t=0  b=100%   m=0 to=0 (all)
+15:06:28.669 > A TX         Delivering t=8  b=92.8%  m=4 to=0 (all)
+15:06:32.196 > B RX ME    2 Parked     t=0  b=100%   m=2 seq=9      -91 dBm
+15:06:32.199 > B RX P1    1 Charging   t=0  b=24%    m=4 seq=5      -66 dBm
+15:06:33.149 > A RX ME    1 Delivering t=8  b=93%    m=4 seq=5     -117 dBm
+15:06:33.152 > A RX P1    2 Parked     t=0  b=100%   m=2 seq=9      -65 dBm
+15:06:35.169 > B TX         Delivering t=5  b=64.2%  m=4 to=3
+15:06:39.266 > B RX ME    2 Delivering t=5  b=64%    m=2 seq=9      -91 dBm
+15:06:40.669 > A TX         Parked     t=9  b=5%     m=0 to=7
+15:06:41.632 > A RX ME    1 Parked     t=9  b=5%     m=4 seq=6     -115 dBm
+15:06:41.635 > A RX P1    2 Parked     t=0  b=100%   m=2 seq=9      -65 dBm
+15:06:42.272 > B RX ME    2 Delivering t=5  b=64%    m=2 seq=9      -91 dBm
+15:06:42.275 > B RX P1    1 Delivering t=8  b=93%    m=4 seq=6      -65 dBm
+15:06:48.170 > B TX         Charging   t=0  b=23.5%  m=0 to=1 (other)
+15:06:48.679 > B RX ME    2 Charging   t=0  b=24%    m=4 seq=10     -95 dBm
+15:06:48.682 > B RX P1    1 Delivering t=8  b=93%    m=4 seq=6      -65 dBm
+15:06:54.670 > A TX         Charging   t=4  b=50%    m=4 to=7
+15:06:56.170 > B TX         Taxi       t=1  b=71%    m=0 to=3
+15:06:57.670 > A TX         Parked     t=0  b=100%   m=0 to=0 (all)
+15:06:59.170 > B TX         Taxi       t=6  b=33%    m=4 to=1 (other)
+15:07:00.670 > A TX         Parked     t=9  b=5%     m=0 to=7
+15:07:03.161 > A RX ME    1 Parked     t=9  b=5%     m=4 seq=6     -115 dBm
+15:07:03.170 > B TX         Charging   t=0  b=23.5%  m=0 to=1 (other)
+15:07:04.670 > A TX         Delivering t=8  b=92.8%  m=4 to=0 (all)
+15:07:05.165 > B RX ME    2 Charging   t=0  b=24%    m=4 seq=11     -94 dBm
+15:07:05.168 > B RX P1    1 Delivering t=8  b=93%    m=4 seq=6      -65 dBm
+15:07:06.167 > A RX ME    1 Delivering t=8  b=93%    m=4 seq=6     -115 dBm
+15:07:06.170 > A RX P1    2 Charging   t=0  b=24%    m=4 seq=11     -65 dBm
+15:07:11.170 > B TX         Taxi       t=6  b=33%    m=4 to=1 (other)
+15:07:12.230 > B RX ME    2 Taxi       t=6  b=33%    m=4 seq=11     -94 dBm
+15:07:14.597 > A RX ME    1 Delivering t=8  b=93%    m=4 seq=7     -115 dBm
+15:07:14.600 > A RX P1    2 Charging   t=0  b=24%    m=4 seq=11     -65 dBm
+15:07:15.235 > B RX ME    2 Taxi       t=6  b=33%    m=4 seq=11     -94 dBm
+15:07:15.238 > B RX P1    1 Delivering t=8  b=93%    m=4 seq=7      -65 dBm
+15:07:16.670 > A TX         Parked     t=0  b=100%   m=0 to=0 (all)
+15:07:20.170 > B TX         Taxi       t=1  b=71%    m=0 to=3
+15:07:21.769 > B RX ME    2 Taxi       t=1  b=71%    m=4 seq=12     -92 dBm
+15:07:21.771 > B RX P1    1 Delivering t=8  b=93%    m=4 seq=7      -65 dBm
+15:07:23.672 > A TX         Charging   t=4  b=50%    m=4 to=7
+15:07:30.171 > B TX         Delivering t=5  b=64.2%  m=4 to=3
+15:07:36.130 > A RX ME    1 Charging   t=4  b=50%    m=4 seq=7     -115 dBm
+15:07:36.671 > A TX         Charging   t=0  b=23.5%  m=0 to=2 (other)
+15:07:38.305 > B RX ME    2 Delivering t=5  b=64%    m=4 seq=13     -92 dBm
+15:07:38.308 > B RX P1    1 Delivering t=8  b=93%    m=4 seq=7      -65 dBm
+15:07:39.171 > B TX         Parked     t=9  b=5%     m=0 to=7
+15:07:40.671 > A TX         Taxi       t=6  b=33%    m=4 to=2 (other)
+15:07:43.171 > B TX         Delivering t=8  b=92.8%  m=4 to=0 (all)
+15:07:44.671 > A TX         Taxi       t=1  b=71%    m=0 to=3
+15:07:45.375 > B RX ME    2 Delivering t=8  b=93%    m=4 seq=13     -92 dBm
+15:07:51.171 > B TX         Parked     t=0  b=100%   m=0 to=0 (all)
+15:07:54.738 > B RX ME    2 Parked     t=0  b=100%   m=4 seq=14     -93 dBm
+15:07:55.563 > A RX ME    1 Taxi       t=1  b=71%    m=4 seq=7     -115 dBm
+15:07:55.566 > A RX P1    2 Parked     t=0  b=100%   m=4 seq=14     -65 dBm
+15:07:56.672 > A TX         Delivering t=5  b=64.2%  m=4 to=3
+15:07:58.171 > B TX         Charging   t=4  b=50%    m=4 to=7
+15:07:58.671 > A TX         Parked     t=0  b=100%   m=0 to=0 (all)
+15:08:01.172 > B TX         Taxi       t=1  b=71%    m=0 to=3
+15:08:03.671 > A TX         Delivering t=8  b=92.8%  m=4 to=0 (all)
+15:08:04.046 > A RX ME    1 Delivering t=8  b=93%    m=4 seq=8     -118 dBm
+15:08:04.049 > A RX P1    2 Parked     t=0  b=100%   m=4 seq=14     -65 dBm
+15:08:04.745 > B RX ME    2 Taxi       t=1  b=71%    m=4 seq=14     -93 dBm
+15:08:04.747 > B RX P1    1 Parked     t=0  b=100%   m=4 seq=8      -65 dBm
+15:08:05.172 > B TX         Charging   t=0  b=23.5%  m=0 to=1 (other)
+15:08:06.672 > A TX         Delivering t=5  b=64.2%  m=4 to=3
+15:08:11.228 > B RX ME    2 Charging   t=0  b=24%    m=4 seq=15     -94 dBm
+15:08:11.230 > B RX P1    1 Parked     t=0  b=100%   m=4 seq=8      -65 dBm
+15:08:12.130 > A RX ME    1 Delivering t=5  b=64%    m=4 seq=8     -118 dBm
+15:08:12.133 > A RX P1    2 Charging   t=0  b=24%    m=4 seq=15     -66 dBm
+15:08:12.172 > B TX         Parked     t=9  b=5%     m=0 to=7
+15:08:16.671 > A TX         Charging   t=4  b=50%    m=4 to=7
+15:08:19.172 > B TX         Taxi       t=6  b=33%    m=4 to=1 (other)
+15:08:20.530 > A RX ME    1 Charging   t=4  b=50%    m=4 seq=9     -114 dBm
+15:08:20.533 > A RX P1    2 Charging   t=0  b=24%    m=4 seq=15     -66 dBm
+15:08:20.672 > A TX         Taxi       t=1  b=71%    m=0 to=3
+15:08:26.172 > B TX         Parked     t=0  b=100%   m=0 to=0 (all)
+15:08:30.672 > A TX         Charging   t=0  b=23.5%  m=0 to=2 (other)
+15:08:33.172 > B TX         Delivering t=8  b=92.8%  m=4 to=0 (all)
+15:08:34.783 > B RX ME    2 Delivering t=8  b=93%    m=4 seq=15     -94 dBm
+15:08:35.671 > A TX         Parked     t=9  b=5%     m=0 to=7
+15:08:37.012 > A RX ME    1 Parked     t=9  b=5%     m=2 seq=10    -116 dBm
+15:08:37.015 > A RX P1    2 Charging   t=0  b=24%    m=4 seq=15     -66 dBm
+15:08:37.788 > B RX ME    2 Delivering t=8  b=93%    m=4 seq=15     -94 dBm
+15:08:37.792 > B RX P1    1 Charging   t=0  b=24%    m=2 seq=10     -65 dBm
+15:08:38.173 > B TX         Delivering t=5  b=64.2%  m=4 to=3
+15:08:39.672 > A TX         Taxi       t=6  b=33%    m=4 to=2 (other)
+15:08:42.061 > A RX ME    1 Taxi       t=6  b=33%    m=2 seq=10    -116 dBm
+15:08:43.172 > B TX         Charging   t=4  b=50%    m=4 to=7
+15:08:44.193 > B RX ME    2 Charging   t=4  b=50%    m=4 seq=16     -94 dBm
+15:08:44.195 > B RX P1    1 Charging   t=0  b=24%    m=2 seq=10     -65 dBm
+15:08:45.672 > A TX         Parked     t=0  b=100%   m=0 to=0 (all)
+15:08:53.172 > B TX         Taxi       t=6  b=33%    m=4 to=1 (other)
+15:08:59.672 > A TX         Delivering t=5  b=64.2%  m=4 to=3
+15:09:00.676 > B RX ME    2 Taxi       t=6  b=33%    m=4 seq=17     -92 dBm
+15:09:00.679 > B RX P1    1 Charging   t=0  b=24%    m=2 seq=10     -65 dBm
+15:09:01.495 > A RX ME    1 Delivering t=5  b=64%    m=2 seq=10    -116 dBm
+15:09:01.498 > A RX P1    2 Taxi       t=6  b=33%    m=4 seq=17     -65 dBm
+15:09:05.172 > B TX         Taxi       t=1  b=71%    m=0 to=3
+15:09:07.745 > B RX ME    2 Taxi       t=1  b=71%    m=4 seq=17     -92 dBm
+15:09:09.985 > A RX ME    1 Delivering t=5  b=64%    m=4 seq=11    -116 dBm
+15:09:09.988 > A RX P1    2 Taxi       t=6  b=33%    m=4 seq=17     -65 dBm
+15:09:10.673 > A TX         Delivering t=8  b=92.8%  m=4 to=0 (all)
+15:09:15.174 > B TX         Charging   t=4  b=50%    m=4 to=7
+15:09:18.673 > A TX         Parked     t=9  b=5%     m=0 to=7
+15:09:23.174 > B TX         Charging   t=0  b=23.5%  m=0 to=1 (other)
+15:09:26.461 > A RX ME    1 Parked     t=9  b=5%     m=4 seq=12    -114 dBm
+15:09:26.463 > A RX P1    2 Taxi       t=6  b=33%    m=4 seq=17     -65 dBm
+15:09:27.674 > A TX         Taxi       t=6  b=33%    m=4 to=2 (other)
+15:09:31.506 > A RX ME    1 Taxi       t=6  b=33%    m=4 seq=12    -114 dBm
+15:09:34.174 > B TX         Parked     t=0  b=100%   m=0 to=0 (all)
+15:09:39.674 > A TX         Taxi       t=1  b=71%    m=0 to=3
+15:09:41.173 > B TX         Delivering t=5  b=64.2%  m=4 to=3
+15:09:42.674 > A TX         Charging   t=4  b=50%    m=4 to=7
+15:09:42.938 > A RX ME    1 Charging   t=4  b=50%    m=4 seq=13    -117 dBm
+15:09:49.175 > B TX         Delivering t=8  b=92.8%  m=4 to=0 (all)
+15:09:54.675 > A TX         Charging   t=0  b=23.5%  m=0 to=2 (other)
+15:09:59.422 > A RX ME    1 Charging   t=0  b=24%    m=4 seq=14    -117 dBm
+15:10:00.116 > B RX ME    2 Delivering t=8  b=93%    m=4 seq=17     -92 dBm
+15:10:00.118 > B RX P1    1 Charging   t=0  b=24%    m=4 seq=14     -66 dBm
+15:10:02.175 > B TX         Parked     t=9  b=5%     m=0 to=7
+15:10:06.608 > B RX ME    2 Parked     t=9  b=5%     m=4 seq=18     -92 dBm
+15:10:06.611 > B RX P1    1 Charging   t=0  b=24%    m=4 seq=14     -66 dBm
+15:10:08.674 > A TX         Taxi       t=6  b=33%    m=4 to=2 (other)
+15:10:14.174 > B TX         Charging   t=0  b=23.5%  m=0 to=1 (other)
+15:10:19.674 > A TX         Parked     t=9  b=5%     m=0 to=7
+15:10:22.175 > B TX         Delivering t=8  b=92.8%  m=4 to=0 (all)
+15:10:23.084 > B RX ME    2 Delivering t=8  b=93%    m=2 seq=19     -93 dBm
+15:10:23.087 > B RX P1    1 Charging   t=0  b=24%    m=4 seq=14     -66 dBm
+15:10:23.910 > A RX ME    1 Parked     t=9  b=5%     m=4 seq=14    -117 dBm
+15:10:23.913 > A RX P1    2 Charging   t=0  b=24%    m=2 seq=19     -66 dBm
+15:10:24.675 > A TX         Charging   t=4  b=50%    m=4 to=7
+15:10:30.151 > B RX ME    2 Delivering t=8  b=93%    m=2 seq=19     -93 dBm
+15:10:31.175 > B TX         Delivering t=5  b=64.2%  m=4 to=3
+15:10:32.392 > A RX ME    1 Charging   t=4  b=50%    m=4 seq=15    -115 dBm
+15:10:32.395 > A RX P1    2 Charging   t=0  b=24%    m=2 seq=19     -66 dBm
+15:10:37.676 > A TX         Taxi       t=1  b=71%    m=0 to=3
+15:10:43.176 > B TX         Parked     t=0  b=100%   m=0 to=0 (all)
+15:10:47.676 > A TX         Charging   t=0  b=23.5%  m=0 to=2 (other)
+15:10:48.875 > A RX ME    1 Charging   t=0  b=24%    m=2 seq=16    -117 dBm
+15:10:48.877 > A RX P1    2 Charging   t=0  b=24%    m=2 seq=19     -66 dBm
+15:10:53.921 > A RX ME    1 Charging   t=0  b=24%    m=2 seq=16    -117 dBm
+15:10:54.176 > B TX         Taxi       t=6  b=33%    m=4 to=1 (other)
+15:10:59.676 > A TX         Delivering t=8  b=92.8%  m=4 to=0 (all)
+15:11:05.352 > A RX ME    1 Delivering t=8  b=93%    m=4 seq=17    -115 dBm
+15:11:06.046 > B RX ME    2 Taxi       t=6  b=33%    m=2 seq=19     -93 dBm
+15:11:06.049 > B RX P1    1 Delivering t=8  b=93%    m=4 seq=17     -67 dBm
+15:11:06.176 > B TX         Parked     t=9  b=5%     m=0 to=7
+15:11:12.530 > B RX ME    2 Parked     t=9  b=5%     m=4 seq=20     -92 dBm
+15:11:12.533 > B RX P1    1 Delivering t=8  b=93%    m=4 seq=17     -67 dBm
+15:11:12.677 > A TX         Delivering t=5  b=64.2%  m=4 to=3
+15:11:20.177 > B TX         Charging   t=4  b=50%    m=4 to=7
+15:11:26.677 > A TX         Parked     t=0  b=100%   m=0 to=0 (all)
+15:11:29.016 > B RX ME    2 Charging   t=4  b=50%    m=4 seq=21     -91 dBm
+15:11:29.019 > B RX P1    1 Delivering t=8  b=93%    m=4 seq=17     -67 dBm
+15:11:32.177 > B TX         Taxi       t=1  b=71%    m=0 to=3
+15:11:36.085 > B RX ME    2 Taxi       t=1  b=71%    m=4 seq=21     -91 dBm
+15:11:37.677 > A TX         Parked     t=9  b=5%     m=0 to=7
