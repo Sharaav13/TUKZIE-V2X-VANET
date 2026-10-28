@@ -6,11 +6,6 @@ A vehicle-to-everything (V2X) vehicular ad hoc network (VANET) built on LoRa. Ea
 
 <p align="center"><img src="images/comm.png" alt="TUKZIE communication network: TVV nodes link vehicles over sub-GHz RF, and each node connects by wire to its host device" width="650"></p>
 
-<p align="center">
-  <img src="images/node.jpg" alt="TVV node in its enclosure" height="420">
-  <img src="images/nodeopen.jpg" alt="Inside the TVV node: ESP32-S3 DevKitC, RA-02 LoRa module, ATGM336H GPS, LSM6DS3 IMU, SD card module, OLED, AMS1117 regulator and ports" height="420">
-</p>
-
 ## Features
 
 - **LoRa network:** 433 MHz, SF12, 25-byte binary beacons every 15 s, broadcast or addressed to one node (provision for destination-based routing), with a CSMA/CA-style MAC (carrier sense plus a random back-off after each received packet).
@@ -42,6 +37,11 @@ A vehicle-to-everything (V2X) vehicular ad hoc network (VANET) built on LoRa. Ea
 | [`images/`](images) | Images used in this README |
 
 ## Hardware
+
+<p align="center">
+  <img src="images/node.jpg" alt="TVV node in its enclosure" height="300">
+  <img src="images/nodeopen.jpg" alt="Inside the TVV node: ESP32-S3 DevKitC, RA-02 LoRa module, ATGM336H GPS, LSM6DS3 IMU, SD card module, OLED, AMS1117 regulator and ports" height="300">
+</p>
 
 | Part | Interface | Pins (ESP32-S3) |
 |---|---|---|
