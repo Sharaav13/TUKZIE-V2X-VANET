@@ -67,7 +67,6 @@ MAX_POS_AGE_S = 5;          % s, largest gap to the receiver's nearest GPS fix w
 C_AB = [0.00 0.45 0.74];    % Alice -> Bob
 C_BA = [0.85 0.33 0.10];    % Bob -> Alice
 C_ACC = [0.49 0.18 0.56; 0.00 0.45 0.74; 0.47 0.67 0.19];   % x purple, y blue, z green
-C_ORANGE = [0.93 0.55 0.10];
 
 testsDir = fileparts(mfilename('fullpath'));
 plotDir = fullfile(testsDir, 'plots');
@@ -116,12 +115,12 @@ try
         h(end + 1) = plot(seconds(S.t(ok)), S.az(ok), 'Color', C_ACC(3, :), 'LineWidth', 1);
         labels = {'a_x', 'a_y', 'a_z'};
         [h, labels] = addLines(h, labels, tAcc, 'r', '--', 'Accident detected');
-        [h, labels] = addLines(h, labels, tTer, C_ORANGE, '--', 'Terrain detected');
+        [h, labels] = addLines(h, labels, tTer, 'k', '--', 'Terrain detected');
         [h, labels] = addLines(h, labels, bumps, 'k', '-', 'Bump (recorded)', bumpLabels);
         xtickformat('hh:mm:ss');
         xlabel('Time (SAST)');
         ylabel('Acceleration (g)');
-        title(name);
+        title('GrandWest Casino parking lot');
         legend(h, labels, 'Location', 'eastoutside');
         saveFigure(fig, plotDir, name);
 
@@ -177,13 +176,14 @@ try
     envs = {'undercover', 'outside'};
     trueLoc = {HOWARD_TRUE_UNDERCOVER, HOWARD_TRUE_OUTSIDE};
     envMarks = {HOWARD_UNDERCOVER_MARKS, HOWARD_OUTSIDE_MARKS};
+    envLegend = {'best', 'north'};      % outside: 'best' covers the End line
     for e = 1:numel(envs)
         laps = subfolders(dirH, ['^' envs{e} ' lap \d+$']);
         fprintf('\n%s (%s):\n', upper(envs{e}(1)) + string(envs{e}(2:end)), strjoin(laps, ', '));
 
         % RSSI, SNR and delivery over the laps joined together
-        linkFigure(concatNodes(dirH, laps, [ALICE BOB]), sprintf('Howard centre - Bob %s - RSSI, SNR and packet delivery', ...
-            envs{e}), envMarks{e}, ALICE, BOB, NAMES, C_AB, C_BA, plotDir);
+        linkFigure(concatNodes(dirH, laps, [ALICE BOB]), sprintf('Howard Centre circuit - Bob %s - RSSI, SNR and packet delivery', ...
+            envs{e}), envMarks{e}, ALICE, BOB, NAMES, C_AB, C_BA, plotDir, envLegend{e});
 
         % Bob's GPS location across the laps
         S = cellfun(@(l) readSensor(fullfile(dirH, l, 'sensor_log2.txt')), laps, 'UniformOutput', false);
@@ -267,7 +267,7 @@ end
 section('tukzie test');
 try
     [Lab, Lba] = linkFigure(loadNodes(fullfile(testsDir, 'tukzie test'), [ALICE BOB]), ...
-        'Tukzie test - RSSI, SNR and packet delivery', TUKZIE_MARKS, ALICE, BOB, NAMES, C_AB, C_BA, plotDir);
+        'TUKZIE road test - RSSI, SNR and packet delivery', TUKZIE_MARKS, ALICE, BOB, NAMES, C_AB, C_BA, plotDir);
 
     % PDR without the packets sent between TUKZIE_EXCLUDE(1) and TUKZIE_EXCLUDE(2)
     ex = toSec(TUKZIE_EXCLUDE);
@@ -536,9 +536,14 @@ function N = concatNodes(dirP, subs, ids)
     end
 end
 
-function [Lab, Lba] = linkFigure(N, name, markRows, a, b, names, cAB, cBA, plotDir)
+function [Lab, Lba] = linkFigure(N, name, markRows, a, b, names, cAB, cBA, plotDir, legendLoc)
 % RSSI, SNR and received/dropped of both directions against time, with labelled black lines at the marks
 % N: logs of nodes a and b (loadNodes or concatNodes) | markRows: {time, label} per line
+% legendLoc: legend location on the RSSI panel ('best' if not given)
+
+    if nargin < 10
+        legendLoc = 'best';
+    end
 
     [markT, markLabels] = marks(markRows);
     Lab = link(N.(nodeKey(a)).V, N.(nodeKey(b)).V, a, logSpan(N.(nodeKey(b)).S), false);
@@ -558,7 +563,7 @@ function [Lab, Lba] = linkFigure(N, name, markRows, a, b, names, cAB, cBA, plotD
     [x, y] = got(Lba, 'rssi'); plot(x, y, '.-', 'Color', cBA);
     ylabel('RSSI (dBm)');
     legend(sprintf('%s (%d received)', lab, sum(Lab.delivered)), sprintf('%s (%d received)', lba, sum(Lba.delivered)), ...
-        'Location', 'best', 'Interpreter', 'none', 'AutoUpdate', 'off');
+        'Location', legendLoc, 'Interpreter', 'none', 'AutoUpdate', 'off');
 
     ax(2) = nexttile; hold on; grid on;
     [x, y] = got(Lab, 'snr'); plot(x, y, '.-', 'Color', cAB);

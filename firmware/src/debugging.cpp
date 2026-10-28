@@ -26,28 +26,28 @@ void debug(uint8_t peripheral) {
 
   switch (peripheral) {
     case DBG_UI:
-      uiDebug();
+      uiTest();
       break;
     case DBG_SD_CARD:
-      storageDebug();
+      storageTest();
       break;
     case DBG_GPS:
-      gpsDebug();
+      gpsTest();
       break;
     case DBG_IMU:
-      imuDebug();
+      imuTest();
       break;
     case DBG_HOST:
-      hostDebug();
+      hostTest();
       break;
     case DBG_LORA_RX:
-      loraDebug(0);
+      loraTest(0);
       break;
     case DBG_LORA_TX:
-      loraDebug(1);
+      loraTest(1);
       break;
     case DBG_LORA:
-      loraDebug(2);
+      loraTest(2);
       break;
   }
 }
@@ -60,7 +60,7 @@ void debug(uint8_t peripheral) {
   Every UI_TEST_INTVL: sets the RGB LED to its next colour (cycling through all of them) and shows the same test
   message, with that colour's name, on the OLED and the Serial Monitor
 */
-void uiDebug(void) {
+void uiTest(void) {
 
   // Name of each RGB colour (index = colour code, OFF to BRIGHTWHITE)
   static const char *const colourNames[] = {"Off", "Red", "Orange", "Yellow", "Green", "Blue", "Purple", "White"};
@@ -87,7 +87,7 @@ void uiDebug(void) {
 /*
   Writes a test line to DEBUG_FILE (shown on the OLED) and reads the file back to Serial
 */
-void storageDebug(void) {
+void storageTest(void) {
 
   if ((millis() - storage.lastWrite) >= SD_WRITE_INTVL) {
     String written = "SD test: " + String(millis()) + " ms\n";
@@ -110,7 +110,7 @@ void storageDebug(void) {
 /*
   Displays all GPS data periodically
 */
-void gpsDebug(void) {
+void gpsTest(void) {
   if ((millis() - gps.lastSample) >= GPS_SAMPLING) {
     gps.get();
     char gps_str[192];
@@ -127,7 +127,7 @@ void gpsDebug(void) {
 /*
   Displays all IMU data periodically
 */
-void imuDebug(void) {
+void imuTest(void) {
   if ((millis() - imu.lastSample) >= IMU_SAMPLING) {
     imu.getAll();
     char imu_str[192];
@@ -144,7 +144,7 @@ void imuDebug(void) {
 /*
   Host UART loopback test (Tx wired to Rx)
 */
-void hostDebug(void) {
+void hostTest(void) {
 
   if ((millis() - host.lastTx) >= HOST_TX_INTVL) {
     String txLine = "Host Tx: " + (String)millis();
@@ -176,7 +176,7 @@ void hostDebug(void) {
   select: 0 => Rx, 1 => Tx, 2 => both
   Tx packets carry the GPS date, time and a count
 */
-void loraDebug(uint8_t select) {
+void loraTest(uint8_t select) {
 
   static uint32_t lastBeacon = 0;   // previous test Tx
   static uint32_t txCount = 0;      // test packets sent

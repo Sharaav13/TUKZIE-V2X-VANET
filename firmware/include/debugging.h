@@ -30,7 +30,7 @@ void debug(uint8_t peripheral);
   Every UI_TEST_INTVL: sets the RGB LED to its next colour (cycling through all of them) and shows the same test
   message, with that colour's name, on the OLED and the Serial Monitor
 */
-void uiDebug(void);
+void uiTest(void);
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 // Storage
@@ -39,7 +39,7 @@ void uiDebug(void);
 /*
   Writes a test line to DEBUG_FILE (shown on the OLED) and reads the file back to Serial
 */
-void storageDebug(void);
+void storageTest(void);
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 // GPS
@@ -48,7 +48,7 @@ void storageDebug(void);
 /*
   Displays all GPS data periodically
 */
-void gpsDebug(void);
+void gpsTest(void);
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 // IMU
@@ -57,7 +57,7 @@ void gpsDebug(void);
 /*
   Displays all IMU data periodically
 */
-void imuDebug(void);
+void imuTest(void);
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 // Host
@@ -66,7 +66,7 @@ void imuDebug(void);
 /*
   Host UART loopback test (Tx wired to Rx)
 */
-void hostDebug(void);
+void hostTest(void);
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 // LoRa
@@ -77,6 +77,6 @@ void hostDebug(void);
   select: 0 => Rx, 1 => Tx, 2 => both
   Tx packets carry the GPS date, time and a count
 */
-void loraDebug(uint8_t select);
+void loraTest(uint8_t select);
 
 #endif // TVV_DEBUGGING_H

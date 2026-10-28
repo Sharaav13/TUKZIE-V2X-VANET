@@ -4,6 +4,12 @@ OMNeT++ model of the TVV node firmware's **MAC** and **routing** (beacons, clust
 (OMNeT++ 6.1, INET 4.5, FLoRa 1.2.0, Veins 5.3.1 + SUMO, in `~/TVV`). It reuses the project's LoRa PHY
 (`LoRaV2VTransmitter`, `LoRaV2VReceiver`), channel, SUMO scenario and analysis scripts.
 
+This folder (`simulation/omnet`, formerly `firmware/sim`) also holds the step-by-step guide
+`TVV_OMNeT_Simulation_Guide.docx`, the channel-calibration scripts in `calibration/` (`extract_rugby.py`,
+`fit_channel.py`, run from that folder on Windows with Python 3, numpy and scipy) and screenshots of the Erlangen
+scenario (`omnet_erlangen_*.png`). The model is built and run in `~/TVV/lora-v2v` (WSL), into which `src/` and
+`simulations/` are copied.
+
 ## Files
 
 | File | Firmware | Role |
@@ -23,8 +29,8 @@ OMNeT++ model of the TVV node firmware's **MAC** and **routing** (beacons, clust
 
 ```bash
 # from Windows' copy of the repo into the project
-cp /mnt/c/Users/shara/Dev/TUKZIE-V2X-VANET/firmware/sim/src/*         ~/TVV/lora-v2v/src/
-cp /mnt/c/Users/shara/Dev/TUKZIE-V2X-VANET/firmware/sim/simulations/* ~/TVV/lora-v2v/simulations/
+cp /mnt/c/Users/shara/Dev/TUKZIE-V2X-VANET/simulation/omnet/src/*         ~/TVV/lora-v2v/src/
+cp /mnt/c/Users/shara/Dev/TUKZIE-V2X-VANET/simulation/omnet/simulations/* ~/TVV/lora-v2v/simulations/
 echo "include tvv.ini" >> ~/TVV/lora-v2v/simulations/omnetpp.ini     # once
 
 source ~/TVV/tvv-env.sh

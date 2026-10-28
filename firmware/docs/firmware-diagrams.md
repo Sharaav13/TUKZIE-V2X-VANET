@@ -308,12 +308,12 @@ classDiagram
     class Debugging {
         <<module debugging.cpp>>
         +debug(peripheral) void$
-        +uiDebug() void$
-        +storageDebug() void$
-        +gpsDebug() void$
-        +imuDebug() void$
-        +hostDebug() void$
-        +loraDebug(select) void$
+        +uiTest() void$
+        +storageTest() void$
+        +gpsTest() void$
+        +imuTest() void$
+        +hostTest() void$
+        +loraTest(select) void$
     }
 
     %% ---------------- External libraries ----------------

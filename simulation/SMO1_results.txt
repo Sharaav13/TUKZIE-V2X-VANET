@@ -74,7 +74,7 @@ Result (all four channel parameters and the threshold free):
   300 m by 6.5 dB, as expected from the truncation. The ~62-77 dB of excess loss over free space at 1-300 m is the
   ground-level (antennas ~1 m, carried) open-field link; the fit is only meant for 10-330 m, not near 1 m.
 
-1.4 Values put in the model (firmware/sim/simulations/tvv.ini, [Config TvvFirmware], inherited by every Tvv config)
+1.4 Values put in the model (simulation/omnet/simulations/tvv.ini, [Config TvvFirmware], inherited by every Tvv config)
 ---------------------------------------------------------------------------------------------------------------------
   *.LoRaMedium.pathLoss.typename      LogNormalShadowing (unchanged)
   *.LoRaMedium.pathLoss.alpha         3.5   ->  2.77
@@ -181,7 +181,7 @@ two-node PDR is 99.8 %: every node hears every other, and the PDR losses in the 
 2. CONFIGURATION
 ==========================================================================================================================
 
-Test SM/O1, node density sweep (purpose: assess the peer limit). Configs in firmware/sim/simulations/tvv.ini:
+Test SM/O1, node density sweep (purpose: assess the peer limit). Configs in simulation/omnet/simulations/tvv.ini:
   SMO1             N = 2, 5, 10, 20, 40 nodes, firmware back-off (0-6000 ms), MAX_PEERS 3
   SMO1BigCluster   the same with MAX_PEERS = 255 (unlimited), to see how many peers a node could hold
   SMO1CsDetect     sensitivity: SMO1 with carrier sense seeing a frame only after 4 preamble symbols (131 ms)
@@ -189,13 +189,13 @@ Test SM/O1, node density sweep (purpose: assess the peer limit). Configs in firm
 All three extend TvvCluster -> TvvStatic -> TvvFirmware.
 
 Model and tools
-  * TVV model: firmware/sim (TvvMac, TvvRouting, TvvNode, simulations/TvvStatic.ned, simulations/tvv.ini) at repo
-    commit 139ea7a plus this session's uncommitted changes to firmware/sim (calibrated channel, stationary network,
+  * TVV model: simulation/omnet, formerly firmware/sim (TvvMac, TvvRouting, TvvNode, simulations/TvvStatic.ned, simulations/tvv.ini) at repo
+    commit 139ea7a plus this session's changes to the model (calibrated channel, stationary network,
     traffic mix, warm-up-aware statistics, csDetectionTime), copied into ~/TVV/lora-v2v (WSL) and built
     MODE=release. OMNeT++ 6.1, INET 4.5, FLoRa 1.2.0 (LoRaMedium, LoRaRadio, LoRaV2VReceiver/Transmitter);
     Veins/SUMO not used (stationary nodes). Runs made 2026-10-25.
-  * Tables: firmware/sim/simulations/tvvstats.py (results/<config>-*.sca -> mean ± 95 % CI over seeds).
-  * Reproduce: see firmware/sim/README.md, "Stationary configs (no SUMO)".
+  * Tables: simulation/omnet/simulations/tvvstats.py (results/<config>-*.sca -> mean ± 95 % CI over seeds).
+  * Reproduce: see simulation/omnet/README.md, "Stationary configs (no SUMO)".
 
 Firmware parameters (system.h values, unchanged unless swept)
   LoRa 433.2125 MHz, SF12, BW 125 kHz, CR 4/5, 10 dBm, 8-symbol preamble, explicit header, CRC, LDRO;
