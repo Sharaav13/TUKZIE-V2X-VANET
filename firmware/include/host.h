@@ -2,6 +2,12 @@
 // TUKZIE V2X VANET (TVV)
 // NODE FIRMWARE - HOST (UART)
 //*************************************************************************************************************************************************
+/*
+  Version:  1.0
+  Date:     27/10/2026
+  Authors:  Sharaav Dhebideen
+*/
+//*************************************************************************************************************************************************
 
 #ifndef TVV_HOST_H
 #define TVV_HOST_H
@@ -27,7 +33,7 @@ struct Host {
   bool inPacket = false;        // a HOST_START has been seen, collecting until '\n'
 
   /*
-    Setup the host UART
+    Sets up the host UART
     Returns true if the UART driver was installed
   */
   bool init(void);

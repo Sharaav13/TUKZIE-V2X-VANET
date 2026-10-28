@@ -2,6 +2,12 @@
 // TUKZIE V2X VANET (TVV)
 // NODE FIRMWARE - UI (OLED DISPLAY & RGB LED)
 //*************************************************************************************************************************************************
+/*
+  Version:  1.0
+  Date:     27/10/2026
+  Authors:  Sharaav Dhebideen
+*/
+//*************************************************************************************************************************************************
 
 #ifndef TVV_UI_H
 #define TVV_UI_H
@@ -18,7 +24,7 @@ struct OLED {
   Adafruit_SSD1306 dev{SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET};
 
   // Status
-  bool ok = false;
+  bool ok = false;              // init succeeded (otherwise disp() prints to Serial)
 
   // Timestamps (ms)
   uint32_t lastShow = 0;        // previous node view update
@@ -30,7 +36,7 @@ struct OLED {
   bool init(void);
 
   /*
-    Center text on OLED display
+    Centres text on the OLED display
   */
   void centerText(const String &text);
 
@@ -40,7 +46,7 @@ struct OLED {
   void disp(const String &text, uint8_t size, bool center, bool append);
 
   /*
-    Refreshes OLED display
+    Clears the OLED display
   */
   void refresh(void);
 

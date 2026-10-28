@@ -3,8 +3,8 @@
 // NODE FIRMWARE
 //*************************************************************************************************************************************************
 /*
-  Version:  0
-  Date:     09/10/2026
+  Version:  1.0
+  Date:     27/10/2026
   Authors:  Sharaav Dhebideen
 */
 //*************************************************************************************************************************************************
@@ -13,9 +13,10 @@
   1. Each TVV node has a unique ID, stored in the configuration file on the inserted SD card.
   2. The node retrieves and interprets GPS and IMU information itself.
   3. Status, tasks and battery come from the onboard host, which receives the node and its cluster in return.
-  4. Nodes broadcast over LoRa with a MAC protocol, and keep a cluster of the peers they hear.
-  5. The OLED shows the node view and the RGB LED flashes the message sent with each beacon.
-  6. The USB serial port provides debugging messages.
+  4. Nodes send beacons over LoRa with a CSMA/CA-style MAC, keep a cluster of the peers they hear, and forward packets
+     addressed to other nodes once.
+  5. The OLED shows the node view. The RGB LED flashes on each beacon sent and shows the conditions detected in between.
+  6. Every boot starts fresh SD Card logs, and the USB serial port provides debugging messages.
 */
 //*************************************************************************************************************************************************
 // LIBRARIES
@@ -92,7 +93,7 @@ Data copyMyself(void) {
 //*************************************************************************************************************************************************
 
 /*
-  Core 0: GPS, IMU and host Rx into myself
+  Core 0: GPS, IMU (speed fusion, road awareness) and host Rx into myself
 */
 void v2sLoop(void *param) {
   for (;;) {
@@ -123,7 +124,7 @@ void v2sLoop(void *param) {
 }
 
 /*
-  Core 1: VANET Rx/Tx, cluster, OLED node view and SD Card logs
+  Core 1: VANET Rx/Tx and forwards, cluster, host Tx, OLED node view, RGB LED and SD Card logs
 */
 void v2vLoop(void *param) {
   for (;;) {
@@ -250,7 +251,7 @@ void v2vLoop(void *param) {
 
 void setup() {
 
-  // Serial debugging initialised
+  // Serial Monitor (debug messages)
   Serial.begin(SERIAL_BAUD);
 
   // Protects errors (checked before the tasks start)
@@ -289,18 +290,18 @@ void setup() {
   vanetReady = vanet.init();
   showInit("LoRa", vanetReady, true, 500);
 
-  // Start configurating node
+  // Node ID from the SD Card
   oled.refresh();
   oled.disp(storage.configNode(), 1, false, false);
   storage.nameLogs();             // log files named with my node ID (fresh every boot)
   delay(1000);
 
-  // Add necessary setup error message
+  // Summarise the failed inits in the error list
   if (errors.check) {
     reportError("Setup: errors occurred during boot\n");
   }
 
-  // Indicate setting up finished
+  // Boot finished
   oled.refresh();
   oled.disp("FINISHED BOOT", 1, true, false);
   delay(500);
@@ -333,7 +334,7 @@ void setup() {
 }
 
 //*************************************************************************************************************************************************
-// MAIN CODE/LOOP
+// LOOP
 //*************************************************************************************************************************************************
 
 void loop() {
@@ -344,6 +345,8 @@ void loop() {
   //debug(DBG_GPS);
   //debug(DBG_SD_CARD);
   //debug(DBG_HOST);
+  //debug(DBG_LORA_RX);
+  //debug(DBG_LORA_TX);
   //debug(DBG_LORA);
 
   // Debug mode: keep looping

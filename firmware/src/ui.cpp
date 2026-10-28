@@ -2,6 +2,12 @@
 // TUKZIE V2X VANET (TVV)
 // NODE FIRMWARE - UI (OLED DISPLAY & RGB LED)
 //*************************************************************************************************************************************************
+/*
+  Version:  1.0
+  Date:     27/10/2026
+  Authors:  Sharaav Dhebideen
+*/
+//*************************************************************************************************************************************************
 
 #include "system.h"
 #include "ui.h"
@@ -30,25 +36,25 @@ SystemLights lights;
 */
 bool OLED::init(void) {
 
-  if (!Wire.begin(OLED_I2C_SDA, OLED_I2C_SCL)) { // Determine if I2C is ready
+  if (!Wire.begin(OLED_I2C_SDA, OLED_I2C_SCL)) {
     reportError("OLED: I2C bus failed to start\n");
     return false;
   }
 
-  if (!dev.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // 0x3C is common I2C address
+  if (!dev.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {    // 0x3C: the usual I2C address of SSD1306 modules
     reportError("OLED: display not found at 0x3C\n");
     return false;
   }
 
   ok = true;
-  dev.setTextColor(SSD1306_WHITE); // White text
+  dev.setTextColor(SSD1306_WHITE);
   dev.clearDisplay();
   dev.display();
   return true;
 }
 
 /*
-  Center text on OLED display
+  Centres text on the OLED display
 */
 void OLED::centerText(const String &text) {
   int16_t x1, y1;
@@ -68,30 +74,30 @@ void OLED::centerText(const String &text) {
 */
 void OLED::disp(const String &text, uint8_t size, bool center, bool append) {
 
-  if (!ok) { // Check if OLED is working
+  if (!ok) {
     Serial.print(text);
     return;
   }
 
   // New screen unless appending, or if the text ran off the bottom
   if(!append || dev.getCursorY() >= dev.height()) {
-    dev.clearDisplay();     // Clear display buffer
-    dev.setCursor(0, 0);    // Cursor to origin
+    dev.clearDisplay();
+    dev.setCursor(0, 0);
   }
 
-  dev.setTextSize(size);  // 1 = default size
+  dev.setTextSize(size);    // 1 = 21 characters per line
 
   if (center) {
-    centerText(text); // Centre the text
+    centerText(text);
   } else {
     dev.print(text);
   }
 
-  dev.display(); // Push to OLED display
+  dev.display();            // push the buffer to the OLED
 }
 
 /*
-  Refreshes OLED display
+  Clears the OLED display
 */
 void OLED::refresh(void) {
   dev.clearDisplay();
@@ -99,7 +105,7 @@ void OLED::refresh(void) {
 }
 
 /*
-  Signal bars for an average SNR (dB), from "||" (poor) to "|| || || || ||" (good)
+  Signal bars for an average SNR (dB), from "||" (poor) to "|| || || || ||" (excellent)
 */
 static String signalBars(float snr) {
 
@@ -127,7 +133,7 @@ static String signalBars(float snr) {
 */
 void OLED::showNode(const Data &me) {
 
-  // Signal environment: average SNR of my peers as bars (none without peers)
+  // Link quality: average SNR of my peers as bars ("No signal" without peers)
   String text = "Net: ";
   text += (vanet.cluster.count == 0) ? String("No signal") : signalBars(vanet.cluster.averageSnr());
   text += "\n";
@@ -185,7 +191,7 @@ void SystemLights::toggle(uint8_t colour) {
 
   switch (colour) {
     default:
-      dev.setPixelColor(0, dev.Color(0, 0, 0)); // Off
+      dev.setPixelColor(0, dev.Color(0, 0, 0));   // off
       break;
 
     case RED:
@@ -217,7 +223,7 @@ void SystemLights::toggle(uint8_t colour) {
       break;
   }
 
-  dev.show(); // Push the colour to the LED
+  dev.show();   // push the colour to the LED
 }
 
 /*

@@ -2,6 +2,12 @@
 // TUKZIE V2X VANET (TVV)
 // NODE FIRMWARE - HOST (UART)
 //*************************************************************************************************************************************************
+/*
+  Version:  1.0
+  Date:     27/10/2026
+  Authors:  Sharaav Dhebideen
+*/
+//*************************************************************************************************************************************************
 
 #include "system.h"
 #include "host.h"
@@ -23,7 +29,7 @@ Host host;
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
-  Setup the host UART
+  Sets up the host UART
   Returns true if the UART driver was installed
 */
 bool Host::init(void) {
@@ -107,11 +113,11 @@ bool Host::rx(void) {
   int status, tasks, dest, message;
   float battery;
   int got = sscanf(rxBuffer,
-  "%d,"                   // status
-  "%d,"                   // tasks
-  "%f,"                   // battery
-  "%d,"                   // destination
-  "%d",                   // message
+  "%d,"                   // status code
+  "%d,"                   // pending tasks
+  "%f,"                   // battery (%)
+  "%d,"                   // destination ID of my beacons (0 = broadcast)
+  "%d",                   // message code
   &status,
   &tasks,
   &battery,

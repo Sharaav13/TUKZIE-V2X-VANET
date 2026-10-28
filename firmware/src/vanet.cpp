@@ -2,6 +2,12 @@
 // TUKZIE V2X VANET (TVV)
 // NODE FIRMWARE - VANET
 //*************************************************************************************************************************************************
+/*
+  Version:  1.0
+  Date:     27/10/2026
+  Authors:  Sharaav Dhebideen
+*/
+//*************************************************************************************************************************************************
 
 #include "system.h"
 #include "vanet.h"
@@ -10,7 +16,6 @@
 
 // Every node relies on this layout, so stop the build if the packet size changes
 static_assert(sizeof(Packet) == 25, "Packet must be 25 bytes: update both ends and the layout comment in vanet.h");
-
 
 //*************************************************************************************************************************************************
 // INSTANCES
@@ -142,7 +147,7 @@ bool Cluster::update(const Data &node) {
       return false;
     }
     i = count;
-    count++; // New peer
+    count++;    // new peer
   }
 
   peerTable[i] = node;
@@ -220,7 +225,7 @@ bool Vanet::init(void) {
     LoRa.enableCrc();
 
     randomSeed(esp_random());
-    lastTx = millis() - random(0, BEACON_INTVL); // random first beacon, so nodes don't sync
+    lastTx = millis() - random(0, BEACON_INTVL);   // random first beacon, so nodes do not sync
 
     // Rx callback (also attaches the library's DIO0 interrupt, replaced below)
     LoRa.onReceive(onLoraReceive);
@@ -288,7 +293,7 @@ void Vanet::readPacket(int size) {
     return;
   }
 
-  // For me: dest == my ID, or a broadcast (dest == 0). Any other dest: forwarded
+  // Read the packet's bytes
   Packet pkt;
   uint8_t *bytes = (uint8_t *)&pkt;
   for (uint8_t i = 0; i < sizeof(Packet); i++) {
@@ -301,6 +306,7 @@ void Vanet::readPacket(int size) {
     return;
   }
 
+  // For me: dest == my ID, or a broadcast (dest == 0)
   // For another node: forward it as it is (not mine, so not read into rxBuffer)
   bool forMe = (pkt.dest == myself.id) || (pkt.dest == 0);
   if (!forMe) {
@@ -313,7 +319,7 @@ void Vanet::readPacket(int size) {
   pkt.unpack(rxBuffer);
 
   rxBuffer.pktRssi = LoRa.packetRssi();
-  rxBuffer.snr =  LoRa.packetSnr();
+  rxBuffer.snr = LoRa.packetSnr();
   rxBuffer.freqErr = LoRa.packetFrequencyError();
 
   // A sender heard directly is a peer (a forwarded packet has a lower ttl: its sender may be out of my range)
@@ -428,14 +434,14 @@ bool Vanet::beaconDue(void) {
 static bool sendPacket(const Packet &pkt, Data &node) {
 
   if (!LoRa.beginPacket()) {
-    return false; // radio busy
+    return false;   // radio busy
   }
 
   LoRa.write((const uint8_t *)&pkt, sizeof(Packet));    // send the packet's 25 bytes
 
   // Latency: TX start (endPacket's first SPI write puts the radio in Tx) and TX done (endPacket returns on TxDone)
   int64_t txStartUs = esp_timer_get_time();
-  LoRa.endPacket();                                     // waits until sent (~62 ms at SF7)
+  LoRa.endPacket();                                     // waits until sent (~1.48 s at SF12)
   int64_t txDoneUs = esp_timer_get_time();
 
   node.utc = utcClock.toUtc(txStartUs, node.sync);
@@ -448,7 +454,7 @@ static bool sendPacket(const Packet &pkt, Data &node) {
 }
 
 /*
-  Broadcasts a node as a binary packet, then returns to Rx
+  Sends a node as a beacon (broadcast, or addressed to node.destId), then returns to Rx
   node: the node to send (a copy of myself taken under myselfMutex), seq, ttl, srcRssi, utc, airUs and sync are filled in here
   Returns true if it was sent (false if the radio was busy)
 */

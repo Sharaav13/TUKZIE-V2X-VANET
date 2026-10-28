@@ -2,6 +2,12 @@
 // TUKZIE V2X VANET (TVV)
 // NODE FIRMWARE - SENSING (GPS, IMU)
 //*************************************************************************************************************************************************
+/*
+  Version:  1.0
+  Date:     27/10/2026
+  Authors:  Sharaav Dhebideen
+*/
+//*************************************************************************************************************************************************
 
 #include "system.h"
 #include "sensing.h"
@@ -107,7 +113,7 @@ int64_t UtcClock::toUtc(int64_t localUs, uint8_t &sync) {
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
-  Setup GPS and its PPS interrupt
+  Sets up the GPS and its PPS interrupt
   Returns true if the GPS UART driver was installed
 */
 bool GPS::init(void) {
@@ -231,7 +237,7 @@ float GPS::speedVariance(void) {
   float sigma = 0.25f;
 
   // Slightly more conservative at walking speed
-  if (lastSpeed < 2.0f) {   // 2 m/s = 7.2 kmph
+  if (lastSpeed < 2.0f) {   // m/s (7.2 kmph)
     sigma = 0.32f;
   }
 
@@ -269,7 +275,7 @@ size_t GPS::toStr(char *out, size_t cap) {
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
-  Setup and calibrate the IMU
+  Sets up and calibrates the IMU
   Returns true if successful
 */
 bool IMU::init(void) {
@@ -300,7 +306,7 @@ bool IMU::init(void) {
 }
 
 /*
-  Calibrates IMU (keep the node still)
+  Calibrates the IMU (keep the node still)
   Saves the average readings to accBias and gyroBias
   Returns false if too many reads failed (biases are left at 0)
 */
@@ -335,7 +341,7 @@ bool IMU::calibrate(void) {
       gyroSum[i] += gyro[i];
     }
 
-    counter ++;
+    counter++;
   }
 
   for (uint8_t i = 0; i < 3; i++) {
@@ -357,7 +363,7 @@ float IMU::get(uint8_t reading, uint8_t axis, uint8_t calibrated, uint8_t scaled
   float result = 0.0f;
   lsm6.read();
 
-    if (reading == ACC) { // Acceleration
+  if (reading == ACC) {
     switch (axis) {
       case X_AXIS:
         result = lsm6.a.x;
@@ -369,8 +375,8 @@ float IMU::get(uint8_t reading, uint8_t axis, uint8_t calibrated, uint8_t scaled
         result = lsm6.a.z;
         break;
     }
-  } else if (reading == GYRO) { // Gyroscope
-      switch (axis) {
+  } else if (reading == GYRO) {
+    switch (axis) {
       case X_AXIS:
         result = lsm6.g.x;
         break;

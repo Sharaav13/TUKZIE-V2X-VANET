@@ -2,6 +2,12 @@
 // TUKZIE V2X VANET (TVV)
 // NODE FIRMWARE - DEBUGGING
 //*************************************************************************************************************************************************
+/*
+  Version:  1.0
+  Date:     27/10/2026
+  Authors:  Sharaav Dhebideen
+*/
+//*************************************************************************************************************************************************
 
 #ifndef TVV_DEBUGGING_H
 #define TVV_DEBUGGING_H
@@ -46,7 +52,7 @@ void storageTest(void);
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
-  Displays all GPS data periodically
+  Prints the GPS data to Serial every GPS_SAMPLING
 */
 void gpsTest(void);
 
@@ -55,7 +61,7 @@ void gpsTest(void);
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
-  Displays all IMU data periodically
+  Prints the IMU readings to Serial every IMU_SAMPLING
 */
 void imuTest(void);
 

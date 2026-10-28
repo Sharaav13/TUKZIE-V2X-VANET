@@ -2,6 +2,12 @@
 // TUKZIE V2X VANET (TVV)
 // NODE FIRMWARE - STORAGE (SD CARD)
 //*************************************************************************************************************************************************
+/*
+  Version:  1.0
+  Date:     27/10/2026
+  Authors:  Sharaav Dhebideen
+*/
+//*************************************************************************************************************************************************
 
 #ifndef TVV_STORAGE_H
 #define TVV_STORAGE_H
@@ -18,11 +24,11 @@ struct Storage {
   SPIClass spi{FSPI};
 
   // Status
-  bool ok = false;
+  bool ok = false;              // card mounted (otherwise nothing is read or written)
 
   // Timestamps (ms)
-  uint32_t lastWrite = 0;       // previous SD Card write
-  uint32_t lastRead = 0;        // previous SD Card read
+  uint32_t lastWrite = 0;       // previous SD Card test write (debug mode)
+  uint32_t lastRead = 0;        // previous SD Card test read (debug mode)
   uint32_t lastNodeLog = 0;     // previous log of myself
   uint32_t lastSenseLog = 0;    // previous log of sensing
 
@@ -32,7 +38,7 @@ struct Storage {
   char myselfFile[24] = MYSELF_LOG "0.txt";   // all my data
 
   /*
-    Setup SD Card module
+    Sets up the SD Card module
     Returns true if successful
   */
   bool init(void);

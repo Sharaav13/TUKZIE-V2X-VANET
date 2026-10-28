@@ -1,3 +1,6 @@
 
 # Overleaf report (separate git repo)
 report/
+
+# Chromium crashpad logs from editors
+debug.log

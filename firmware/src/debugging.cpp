@@ -2,6 +2,12 @@
 // TUKZIE V2X VANET (TVV)
 // NODE FIRMWARE - DEBUGGING
 //*************************************************************************************************************************************************
+/*
+  Version:  1.0
+  Date:     27/10/2026
+  Authors:  Sharaav Dhebideen
+*/
+//*************************************************************************************************************************************************
 
 #include "system.h"
 #include "debugging.h"
@@ -92,7 +98,7 @@ void storageTest(void) {
   if ((millis() - storage.lastWrite) >= SD_WRITE_INTVL) {
     String written = "SD test: " + String(millis()) + " ms\n";
     storage.write(written, DEBUG_FILE);
-    oled.disp(written, 1, false, false);    
+    oled.disp(written, 1, false, false);
     storage.lastWrite = millis();
   }
 
@@ -108,7 +114,7 @@ void storageTest(void) {
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
-  Displays all GPS data periodically
+  Prints the GPS data to Serial every GPS_SAMPLING
 */
 void gpsTest(void) {
   if ((millis() - gps.lastSample) >= GPS_SAMPLING) {
@@ -125,7 +131,7 @@ void gpsTest(void) {
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 /*
-  Displays all IMU data periodically
+  Prints the IMU readings to Serial every IMU_SAMPLING
 */
 void imuTest(void) {
   if ((millis() - imu.lastSample) >= IMU_SAMPLING) {
@@ -197,7 +203,7 @@ void loraTest(uint8_t select) {
 
       if (LoRa.beginPacket()) {     // false if the radio is busy
         LoRa.print(txPkt);
-        LoRa.endPacket();           // waits until the packet is sent (~30-100 ms at SF7)
+        LoRa.endPacket();           // waits until the packet is sent (~1.5 s at SF12)
         txCount++;                  // only counted once sent
 
         char txStr[96];

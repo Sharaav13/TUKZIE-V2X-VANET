@@ -2,6 +2,12 @@
 // TUKZIE V2X VANET (TVV)
 // NODE FIRMWARE - INTERPRET (CODED MESSAGES & STATUS, ROAD AWARENESS)
 //*************************************************************************************************************************************************
+/*
+  Version:  1.0
+  Date:     27/10/2026
+  Authors:  Sharaav Dhebideen
+*/
+//*************************************************************************************************************************************************
 
 #ifndef TVV_INTERPRET_H
 #define TVV_INTERPRET_H
@@ -20,7 +26,6 @@ extern const uint8_t msgColours[];         // RGB colour of each message (MSG_CO
 // Protects the message flags (lock order: myselfMutex first)
 extern SemaphoreHandle_t msgFlagsMutex;
 
-
 //*************************************************************************************************************************************************
 // FUNCTIONS
 //*************************************************************************************************************************************************
@@ -38,7 +43,8 @@ void checkAccident(void);
 
 /*
   Flags bad terrain (a bump, pothole or rough surface): the vertical acceleration, gravity removed, reaches TERRAIN_G
-  either way, only while moving at ROAD_MIN_SPEED or faster
+  either way, only while moving at ROAD_MIN_SPEED or faster (no false triggers when parked: loading, doors, people
+  getting in)
 */
 void checkTerrain(void);
 

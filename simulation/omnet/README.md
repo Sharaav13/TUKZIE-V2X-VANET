@@ -4,10 +4,10 @@ OMNeT++ model of the TVV node firmware's **MAC** and **routing** (beacons, clust
 (OMNeT++ 6.1, INET 4.5, FLoRa 1.2.0, Veins 5.3.1 + SUMO, in `~/TVV`). It reuses the project's LoRa PHY
 (`LoRaV2VTransmitter`, `LoRaV2VReceiver`), channel, SUMO scenario and analysis scripts.
 
-This folder (`simulation/omnet`, formerly `firmware/sim`) also holds the step-by-step guide
-`TVV_OMNeT_Simulation_Guide.docx`, the channel-calibration scripts in `calibration/` (`extract_rugby.py`,
-`fit_channel.py`, run from that folder on Windows with Python 3, numpy and scipy) and screenshots of the Erlangen
-scenario (`omnet_erlangen_*.png`). The model is built and run in `~/TVV/lora-v2v` (WSL), into which `src/` and
+This folder also holds the step-by-step guide
+[`docs/TVV_OMNeT_Simulation_Guide.docx`](docs/TVV_OMNeT_Simulation_Guide.docx), the channel-calibration scripts in `calibration/` (`extract_rugby.py`,
+`fit_channel.py`, run from that folder on Windows with Python 3, numpy and scipy), the result summaries in `results/`
+and screenshots of the Erlangen scenario (`images/omnet_erlangen_*.png`). The model is built and run in `~/TVV/lora-v2v` (WSL), into which `src/` and
 `simulations/` are copied.
 
 ## Files
@@ -78,7 +78,7 @@ python3 tvvstats.py sweep B results/SMO2-*.sca
 - **Warm-up:** 1 h runs, the first 300 s discarded (`warmup-period`). The counts used for the tables are signal
   statistics (`heardDirect:sum`, `seqLost:sum`, `rxLost:sum`, ...), so they honour the warm-up; the `recordScalar`
   counters cover the whole run.
-- Results of the calibration and the sweeps: `simulation/SMO1_results.txt` and `simulation/SMO2_results.txt` in the repo.
+- Results of the calibration and the sweeps: `results/SMO1_results.txt` and `results/SMO2_results.txt` in this folder.
 
 ## MAC (TvvMac)
 
@@ -139,7 +139,7 @@ Node IDs default to vehicle index + 1 (0 is the broadcast address). Set `routing
 
 | Module | Statistics |
 |---|---|
-| `node[*].routing` | `beaconsSent`, `beaconsReceived` (for me, direct or forwarded), `beaconsReceivedForwarded`, `beaconDelay` (+ `beaconDelayDirect`, `beaconDelayForwarded`), `rxDistance`, `txNeighborDistance`, `rxPower` (pktRssi), `rxSnr`, `clusterSize`, `numHeardDirect` / `heardDirect` (frames heard straight from their sender, any dest), `numSeqLost` / `seqLost` (gaps in those senders' seq, as `tests/perf_analysis.m`), `numClusterFull` / `clusterFull`, `numPeersAdded` / `peerAdded`, `numPeersRemoved` / `peerRemoved`, `numAddressedSent` / `addressedSent`, `numAddressedReceived` / `addressedReceived` (every copy read), `numAddressedUnique` / `addressedUnique` (first copy of each packet), `forwardedCopyDelay` (every forwarded copy reaching its dest, before the repeat check), `numWrongSize`, `numDuplicates` (repeats dropped), `numForwardQueued`, `numTtlExpired`, `numFwdQueueFull`, `nodeId` |
+| `node[*].routing` | `beaconsSent`, `beaconsReceived` (for me, direct or forwarded), `beaconsReceivedForwarded`, `beaconDelay` (+ `beaconDelayDirect`, `beaconDelayForwarded`), `rxDistance`, `txNeighborDistance`, `rxPower` (pktRssi), `rxSnr`, `clusterSize`, `numHeardDirect` / `heardDirect` (frames heard straight from their sender, any dest), `numSeqLost` / `seqLost` (gaps in those senders' seq, as `tests/test_analysis.m`), `numClusterFull` / `clusterFull`, `numPeersAdded` / `peerAdded`, `numPeersRemoved` / `peerRemoved`, `numAddressedSent` / `addressedSent`, `numAddressedReceived` / `addressedReceived` (every copy read), `numAddressedUnique` / `addressedUnique` (first copy of each packet), `forwardedCopyDelay` (every forwarded copy reaching its dest, before the repeat check), `numWrongSize`, `numDuplicates` (repeats dropped), `numForwardQueued`, `numTtlExpired`, `numFwdQueueFull`, `nodeId` |
 | `node[*].LoRaNic.mac` | `numSent` (beacons), `numForwarded`, `numReceived` / `rxOk`, `numRxLost` / `rxLost` (CRC errors), `frameSent` (count = frames, sum = forwards), `numBackoffs`, `numBlockedByBackoff`, `numBlockedByReceiving`, `channelAccessDelay` (due to Tx start), `txInterval`, `backoffDuration` |
 
 The names in pairs are the whole-run counter (`recordScalar`) and the signal statistic, which honours `warmup-period`.
@@ -167,7 +167,7 @@ A 120 s test run with the earlier 2 s beacon interval (10 LoRa cars, Erlangen) d
 - **Not modelled:** frequency error and the GPS/host payload (the payload fields are 0, battery 100 %),
   and loop delays from SD writes (`pollInterval` covers the 1 ms loop only).
 - **Channel (calibrated):** `TvvFirmware` sets `LogNormalShadowing` alpha 2.77, sigma 5.8 dB, systemLoss 58.3 dB,
-  fitted to the Bob -> Alice packets of the UCT rugby field test (see `simulation/SMO1_results.txt`): PDR about 99.8 %
+  fitted to the Bob -> Alice packets of the UCT rugby field test (see `results/SMO1_results.txt`): PDR about 99.8 %
   to 50 m, 90 % at 100 m, 50 % at about 200 m, 20 % at 300 m. `[General]` keeps alpha 3.5, sigma 6 dB, free space at
   1 m (50 % PDR at about 3 km). The shadowing is drawn independently for every frame (no spatial correlation).
 - **Sensitivity and noise:** FLoRa decodes a frame above its sensitivity table (-137 dBm at SF12/125 kHz), which the

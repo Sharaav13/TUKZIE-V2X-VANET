@@ -3,6 +3,12 @@
 // SIMULATED HOST FIRMWARE (ESP32 DevKit / ESP32-D0WD)
 //*************************************************************************************************************************************************
 /*
+  Version:  1.0
+  Date:     27/10/2026
+  Authors:  Sharaav Dhebideen
+*/
+//*************************************************************************************************************************************************
+/*
   Simulates two hosts on one ESP32, each on its own UART, that can be wired to the Host UART of a TVV node.
   Each host repeats a packet from hostTxMsgs every second (TX_INTVL_MS), switching to its next packet of a shared shuffled
   cycle at the end of each hold (HOLD_MS, or random with HOLD_RANDOM; every packet once per cycle per host). Host B sends
@@ -93,7 +99,8 @@ struct HostTxMsg {
 /*
   Every dest (broadcast, the other node, absent nodes 3 and 7) with and without a host message, covering every status,
   no/some tasks, and battery full, above, at (low) and below LOW_BATTERY_THRESHOLD (50 %), rounding up and down
-  Nodes 3 and 7 are absent: their packets test that nodes drop/do not forward packets for a node outside their cluster
+  Nodes 3 and 7 are absent: their packets test forwarding to a node that is not there (the other node forwards each
+  once, then it is dropped at ttl 0)
 */
 const HostTxMsg hostTxMsgs[] = {
   {0, 0, 100,  0,          0},           // parked, full, broadcast
@@ -460,7 +467,7 @@ void hostRx(SimHost &h, bool show) {
 }
 
 //*************************************************************************************************************************************************
-// MAIN
+// SETUP AND LOOP
 //*************************************************************************************************************************************************
 
 void setup() {

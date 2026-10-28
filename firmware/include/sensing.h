@@ -2,6 +2,12 @@
 // TUKZIE V2X VANET (TVV)
 // NODE FIRMWARE - SENSING (GPS, IMU)
 //*************************************************************************************************************************************************
+/*
+  Version:  1.0
+  Date:     27/10/2026
+  Authors:  Sharaav Dhebideen
+*/
+//*************************************************************************************************************************************************
 
 #ifndef TVV_SENSING_H
 #define TVV_SENSING_H
@@ -56,11 +62,11 @@ struct GPS {
   float lastSpeed = 0.0f;       // m/s
 
   // Timestamps (ms)
-  uint32_t lastSample = 0;      // previous GPS sample
+  uint32_t lastSample = 0;      // previous GPS sample (debug mode)
   uint32_t lastByte = 0;        // previous GPS UART byte
 
   /*
-    Setup GPS
+    Sets up the GPS and its PPS interrupt
     Returns true if the GPS UART driver was installed
   */
   bool init(void);
@@ -104,16 +110,16 @@ struct IMU {
   float gyro[3] = {0.0f, 0.0f, 0.0f};       // dps, gyroBias removed
 
   // Timestamps (ms)
-  uint32_t lastSample = 0;      // previous IMU sample
+  uint32_t lastSample = 0;      // previous IMU sample (debug mode)
 
   /*
-    Setup and calibrate the IMU
+    Sets up and calibrates the IMU
     Returns true if successful
   */
   bool init(void);
 
   /*
-    Calibrates IMU (keep the node still)
+    Calibrates the IMU (keep the node still)
     Saves the average readings to accBias and gyroBias
     Returns false if too many reads failed (biases are left at 0)
   */
@@ -197,13 +203,13 @@ struct SpeedFilter {
   uint32_t stationaryStart = 0; // ms, 0 = not a stationary candidate
   float roll = 0.0f;            // rad
   float pitch = 0.0f;           // rad
-  float fwdAccelFiltered = 0.0f;           // m/s^2, low pass filtered forward acceleration
+  float fwdAccelFiltered = 0.0f;  // m/s^2, low pass filtered forward acceleration
   // Gyro bias: imu.gyroBias (refined here while stationary)
 
   // Timestamps
   uint32_t lastGpsCorrection = 0;   // ms, previous GPS correction
   uint32_t lastZupt = 0;            // ms, previous zero velocity update
-  uint32_t lastFusion = 0;          // us, previous IMU prediction
+  uint32_t lastFusion = 0;          // µs, previous IMU prediction
 
   /*
     Initialises the speed fusion from the IMU calibration

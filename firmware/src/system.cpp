@@ -2,15 +2,21 @@
 // TUKZIE V2X VANET (TVV)
 // NODE FIRMWARE - SYSTEM (DATA & SHARED GLOBAL VARIABLES)
 //*************************************************************************************************************************************************
+/*
+  Version:  1.0
+  Date:     27/10/2026
+  Authors:  Sharaav Dhebideen
+*/
+//*************************************************************************************************************************************************
 
 /*
-STRUCTURE OF MESSAGES:
+  STRUCTURE OF MESSAGES:
 
-VANET network (binary Packet, 25 bytes, dest = node ID or 0 for broadcast, see vanet.h):
+  VANET network (binary Packet, 25 bytes, dest = node ID or 0 for broadcast, see vanet.h):
     TX/RX = | dest | src | seq | ttl | message | date | time | lat | lon | status | tasks | battery |
     A packet addressed to another node (not me, not broadcast) is forwarded as received, with ttl - 1 (not at 0)
 
-Host (text, each packet "$...\n"):
+  Host (text, each packet "$...\n" or "#...\n"):
     TX = $id,<node> for myself, then #id,<node> per cluster peer (<node> = Data::toStr())
     RX = $status,tasks,battery,dest,message
 */
@@ -21,7 +27,7 @@ Host (text, each packet "$...\n"):
 // GLOBAL VARIABLES
 //*************************************************************************************************************************************************
 
-// Node configuration
+// This node (its ID from CONFIG_FILE, the rest from the GPS, IMU and host)
 Data myself;
 
 // System operation
@@ -67,10 +73,10 @@ String Data::toStr(void) const {
     "%.7f,"                 // lon (deg)
     "%.1f,"                 // alt (m)
     "%.1f,"                 // speed (kmph)
-    "%.1f,"                 // heading/course (deg bearing)
-    "%d,"                   // status
+    "%.1f,"                 // course (deg)
+    "%d,"                   // status code
     "%d,"                   // pending tasks
-    "%u,"                   // battery percentage
+    "%u,"                   // battery (%)
     "%d,"                   // message code
     "%u,"                   // sequence number
     "%d,"                   // srcRssi (dBm, my LoRa.rssi() before my last beacon, 0 for peers: not carried in packets)

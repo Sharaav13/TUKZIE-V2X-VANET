@@ -2,6 +2,12 @@
 // TUKZIE V2X VANET (TVV)
 // NODE FIRMWARE - VANET
 //*************************************************************************************************************************************************
+/*
+  Version:  1.0
+  Date:     27/10/2026
+  Authors:  Sharaav Dhebideen
+*/
+//*************************************************************************************************************************************************
 
 #ifndef TVV_VANET_H
 #define TVV_VANET_H
@@ -28,9 +34,9 @@
 struct __attribute__((packed)) Packet {
 
   // Header
-  uint8_t dest;         // destination ID, 0 = broadcast (must stay first: readPacket() checks it before reading the rest)
+  uint8_t dest;         // destination ID, 0 = broadcast
   uint8_t src;          // sender ID
-  uint16_t seq;         // sequence number, increments on every Tx (wraps at 65535)
+  uint16_t seq;         // sender's beacon count, increments on every beacon (wraps at 65535, a forward keeps it)
   uint8_t ttl;          // hops left (TTL_INIT when sent, decremented by each forward)
   uint8_t message;      // message code
 
@@ -57,8 +63,8 @@ struct __attribute__((packed)) Packet {
 // Table of peers within the cluster
 struct Cluster {
 
-  Data peerTable[MAX_PEERS];       // peer table with defined maximum size
-  uint8_t count = 0;               // number of actual peers stored
+  Data peerTable[MAX_PEERS];       // peers, in the order they joined
+  uint8_t count = 0;               // number of peers stored
 
   // Timestamps (ms)
   uint32_t lastHeard[MAX_PEERS];   // when each peer's last packet arrived (local time)
@@ -241,7 +247,7 @@ struct Vanet {
   bool beaconDue(void);
 
   /*
-    Broadcasts a node as a binary packet, then returns to Rx
+    Sends a node as a beacon (broadcast, or addressed to node.destId), then returns to Rx
     node: the node to send (a copy of myself taken under myselfMutex), seq, ttl, srcRssi, utc, airUs and sync are filled in here
     Returns true if it was sent (false if the radio was busy)
   */

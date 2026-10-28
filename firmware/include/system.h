@@ -3,8 +3,8 @@
 // NODE FIRMWARE - SYSTEM (LIBRARIES, MACROS, DATA & SHARED GLOBAL VARIABLES)
 //*************************************************************************************************************************************************
 /*
-  Version:  0
-  Date:     09/10/2026
+  Version:  1.0
+  Date:     27/10/2026
   Authors:  Sharaav Dhebideen
 */
 //*************************************************************************************************************************************************
@@ -25,7 +25,7 @@
 #include <TinyGPS++.h>          // GPS
 #include "LSM6.h"               // IMU
 #include <LoRa.h>               // LoRa
-#include <Adafruit_NeoPixel.h>  // RGB (debugging)
+#include <Adafruit_NeoPixel.h>  // RGB LED
 
 //*************************************************************************************************************************************************
 // MACROS
@@ -58,12 +58,14 @@
 #define SD_MOSI       11    // Pin 11
 #define SD_SCK        12    // Pin 12
 #define SD_MISO       13    // Pin 13
-#define NODE_LOG_INTVL    1000            // ms between logs of myself (storage.myselfFile)
-#define SENSE_LOG_INTVL   1000            // ms between logs of sensing (storage.sensorFile)
+
+// SD Card log intervals
+#define NODE_LOG_INTVL    1000                  // ms between logs of myself (storage.myselfFile)
+#define SENSE_LOG_INTVL   1000                  // ms between logs of sensing (storage.sensorFile)
 
 // SD Card files
 #define CONFIG_FILE       "/config.txt"         // node ID, e.g. "7"
-#define DEBUG_FILE        "/debug.txt"          // SD Card testing
+#define DEBUG_FILE        "/debug.txt"          // SD Card test (debug mode)
 
 // SD Card logs, named with my node ID: prefix + ID + ".txt", e.g. "/vanet_log7.txt" (Storage::nameLogs)
 #define VANET_LOG         "/vanet_log"          // VANET Rx, Tx and forwards
@@ -80,7 +82,7 @@
 // Conversions and thresholds
 #define ACC_MG_PER_LSB          0.244f    // +-8 g full scale (set in IMU::init, enableDefault() would leave +-2 g)
 #define GYRO_MDPS_PER_LSB       8.75f     // +-245 dps full scale (LSM6 enableDefault(): FS_G = 245 dps)
-#define CALIBRATION_SAMPLES     1000.0   // Calibrating IMU
+#define CALIBRATION_SAMPLES     1000.0    // readings averaged at boot to calibrate the IMU (keep the node still)
 
 // imu.get() readings
 #define ACC           0
@@ -98,7 +100,7 @@
 #define GPS_RX        17    // Pin 17, to TX of GPS
 #define GPS_TX        18    // Pin 18, to RX of GPS
 #define GPS_BAUD      9600
-#define SAST_OFFSET   2     // SAST = UTC + 2hr
+#define SAST_OFFSET   2     // h, SAST = UTC + 2 h
 #define GPS_TIMEOUT   3000  // ms without data => GPS missing
 #define GPS_MAX_AGE   2000  // ms before a fix/speed is stale
 
@@ -206,8 +208,9 @@
 #define LORA_NSS      42    // Pin 42
 #define LORA_RST      38    // Pin 38
 #define LORA_DIO0     21    // Pin 21, RxDone interrupt
+
 // LoRa radio
-#define LORA_SPI_FREQ 8E6       // 1E6 for breadboarding otherwise 8E6
+#define LORA_SPI_FREQ 8E6       // Hz, 1E6 for breadboarding, otherwise 8E6
 #define LORA_FREQ     433.2125E6  // Hz (433 MHz band)
 #define LORA_BW       125E3     // Hz
 #define LORA_SF       12        // 7 = low latency, 12 = max range
@@ -216,7 +219,7 @@
 #define LORA_TXPOWER  10        // dBm via PA_BOOST
 #define BEACON_INTVL  15000     // ms between transmissions, shared by my beacons and forwards (keeps the duty cycle at 9.9 %)
 
-// MAC: random wait before Tx after an Rx (~4 x 1483 ms airtime at SF12)
+// MAC: random wait before Tx after an Rx (up to ~4 x 1483 ms time on air at SF12)
 #define BACKOFF_MIN_MS  0       // ms
 #define BACKOFF_MAX_MS  6000    // ms
 
@@ -276,19 +279,20 @@
 // STRUCTURES
 //*************************************************************************************************************************************************
 
+// A node: myself, a cluster peer or a received packet
 struct Data {
-    
+
     // VANET
-    byte destId = 0;
+    byte destId = 0;        // destination ID (0 = broadcast): of my beacons (set by the host), or of a received packet
     byte srcId = 0;
     uint16_t seq = 0;       // sequence number of the beacon (gaps = lost packets)
     uint8_t ttl = 0;        // hops left: TTL_INIT when sent, one less after each forward
     int8_t srcRssi = 0;     // my LoRa.rssi() (dBm) just before I sent (my beacons only, not carried in packets: 0 for peers)
 
-    // Network health
-    float pktRssi = 0.0;    // dBm of the last packet received from this node (measured by the receiver)
-    float snr = 0.0;
-    float freqErr = 0.0;
+    // Network health (of the last packet received from this node, measured by the receiver)
+    float pktRssi = 0.0;    // dBm
+    float snr = 0.0;        // dB
+    float freqErr = 0.0;    // Hz
 
     // Packet timing (PPS UTC time base, for latency)
     int64_t utc = 0;        // µs since UTC midnight: TX start (my beacon) or RxDone (a received packet)
@@ -296,31 +300,32 @@ struct Data {
     uint8_t sync = 0;       // utc quality: 0 = not synced, 1 = PPS locked, 2 = holdover (PPS lost)
 
     // Node identification
-    byte id = 0;
+    byte id = 0;            // node ID (1 to 255, from CONFIG_FILE), 0 = not configured
 
     // Location
-    float lat = 0.0;      // deg (+N/-S)
-    float lon = 0.0;      // deg (+E/-W)
-    float alt = 0.0;     // m
+    float lat = 0.0;        // deg (+N/-S)
+    float lon = 0.0;        // deg (+E/-W)
+    float alt = 0.0;        // m
 
     // GPS fix quality
-    byte sats = 0;      // satellites in view
-    float hdop = 0.0;     // horizontal dilution of precision
+    byte sats = 0;          // satellites used
+    float hdop = 0.0;       // horizontal dilution of precision
 
     // Motion
-    float speed = 0.0;
-    float course = 0.0;
+    float speed = 0.0;      // kmph (fused GPS + IMU)
+    float course = 0.0;     // deg
 
+    // Vehicle state (from the host)
     uint8_t tasks = 0;      // number of pending tasks
     uint8_t status = 0;     // number coded (codedStatus)
-    uint8_t message = 0;   // number coded (codedMessages)
+    uint8_t message = 0;    // number coded (codedMessages)
 
     // Vehicle health
     byte battery = 100;     // % (whole number, from the host)
 
-    // Last updated time
-    uint32_t date = 0;
-    uint32_t time = 0;
+    // Date and time of the last GPS update (SAST)
+    uint32_t date = 0;      // DDMMYY
+    uint32_t time = 0;      // HHMMSSCC
 
     /*
       Converts the node into a single CSV string

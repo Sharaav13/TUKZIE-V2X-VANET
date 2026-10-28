@@ -2,6 +2,12 @@
 // TUKZIE V2X VANET (TVV)
 // NODE FIRMWARE - INTERPRET (CODED MESSAGES & STATUS, ROAD AWARENESS)
 //*************************************************************************************************************************************************
+/*
+  Version:  1.0
+  Date:     27/10/2026
+  Authors:  Sharaav Dhebideen
+*/
+//*************************************************************************************************************************************************
 
 #include "system.h"
 #include "sensing.h"
@@ -50,8 +56,8 @@ SemaphoreHandle_t msgFlagsMutex = NULL;
 static volatile uint32_t detectedAt[MSG_COUNT] = {0};
 
 // Accident
-static bool toppled = false;       // on its side or upside down
-static uint32_t toppleStart;
+static bool toppled = false;        // on its side or upside down
+static uint32_t toppleStart = 0;    // ms when it toppled
 
 //*************************************************************************************************************************************************
 // FUNCTIONS
@@ -74,7 +80,7 @@ void checkAccident(void) {
                           imu.acc[Z_AXIS] * imu.acc[Z_AXIS]);
   bool impact = (magnitude >= ACCIDENT_G);
 
-  // On its side or upside down (g, raw: gravity included, z + = up), timed from when it starts
+  // On its side or upside down (g, raw: gravity included, +Z = up), timed from when it starts
   if ((abs(imu.acc[X_AXIS]) >= SIDE_G) ||
       (abs(imu.acc[Y_AXIS]) >= SIDE_G) ||
       (imu.acc[Z_AXIS] <= UPSIDE_DOWN_G)) {
@@ -121,7 +127,7 @@ void checkTerrain(void) {
 void checkBattery(void) {
   if (myself.battery <= LOW_BATTERY_THRESHOLD) {
     detectedAt[2] = millis();
-    setMsgFlag(2);   // Low on battery
+    setMsgFlag(2);   // Low battery
   }
 }
 
@@ -163,7 +169,7 @@ uint8_t sortMsg(void) {
   for (uint8_t i = 0; i < MSG_COUNT; i++) {
     if ((msgFlags[i] == true) && (i < priorityMsg)) {
       priorityMsg = i;
-      msgFlags[i] = false; // Clear the flag
+      msgFlags[i] = false;    // clear the flag
     }
   }
   xSemaphoreGive(msgFlagsMutex);
