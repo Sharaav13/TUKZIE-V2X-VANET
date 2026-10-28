@@ -6,9 +6,10 @@ A vehicle-to-everything (V2X) vehicular ad hoc network (VANET) built on LoRa. Ea
 
 <p align="center"><img src="images/comm.png" alt="TUKZIE communication network: TVV nodes link vehicles over sub-GHz RF, and each node connects by wire to its host device" width="650"></p>
 
-<p align="center"><img src="images/node.jpg" alt="TVV node in its enclosure" width="400"></p>
-
-![Firmware overview](firmware/docs/9-flow-overview.png)
+<p align="center">
+  <img src="images/node.jpg" alt="TVV node in its enclosure" height="420">
+  <img src="images/nodeopen.jpg" alt="Inside the TVV node: ESP32-S3 DevKitC, RA-02 LoRa module, ATGM336H GPS, LSM6DS3 IMU, SD card module, OLED, AMS1117 regulator and ports" height="420">
+</p>
 
 ## Features
 
@@ -32,7 +33,7 @@ A vehicle-to-everything (V2X) vehicular ad hoc network (VANET) built on LoRa. Ea
 | [`firmware/include/`](firmware/include) | Headers, including all pins and settings in `system.h` |
 | [`firmware/lib/`](firmware/lib) | Local libraries: patched `LoRa` and `SparkFun_LSM6DS3` |
 | [`firmware/docs/`](firmware/docs) | UML and flow diagrams (Mermaid source and PNG exports), and the TVV user manual |
-| [`simulation/host/`](simulation/host) | PlatformIO project for the simulated host device (SHD) |
+| [`simulation/host/`](simulation/host) | PlatformIO project for the simulated host device (SHD), see its [README](simulation/host/README.md) |
 | [`simulation/omnet/`](simulation/omnet) | OMNeT++ model of the node's MAC and routing, with its simulation guide |
 | [`tests/`](tests) | Field and component test logs, photos and plots, and the analysis script `test_analysis.m` |
 | [`schematics/`](schematics) | KiCad schematic of the node |
@@ -56,11 +57,7 @@ A vehicle-to-everything (V2X) vehicular ad hoc network (VANET) built on LoRa. Ea
 
 All pins and settings are defined in [`include/system.h`](firmware/include/system.h).
 
-<p align="center"><img src="images/nodeopen.jpg" alt="Inside the TVV node: ESP32-S3 DevKitC, RA-02 LoRa module, ATGM336H GPS, LSM6DS3 IMU, SD card module, OLED, AMS1117 regulator and ports" width="600"></p>
-
 ## Getting started
-
-<p align="center"><img src="images/equipment.jpg" alt="Test equipment: two TVV nodes, simulated host device, power banks, benchtop power supply cable, connection cables, laptop, SD card adapter and cellphone" width="700"></p>
 
 1. Install [PlatformIO](https://platformio.org/) (the VS Code extension or the CLI).
 2. Prepare a microSD card with `/config.txt` holding the node ID (1 to 255), e.g.:
