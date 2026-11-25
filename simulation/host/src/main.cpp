@@ -68,7 +68,7 @@
 // per hold. Holds are rounded to whole Tx intervals (at least one)
 #define TX_INTVL_MS   1000
 #define HOLD_MS       30000
-#define HOLD_RANDOM   true
+#define HOLD_RANDOM   false // true
 #define HOLD_MIN_MS   1000
 #define HOLD_MAX_MS   15000
 
@@ -276,7 +276,7 @@ int16_t holdTicks(void) {
   follower to switch on its (N / 2 + 1)th send after it, i.e. N / 2 + 0.5 intervals into the hold (halfway, rounded up
   to the follower's next send, and always before the leader's next switch): the follower switches exactly once per leader
   hold, also with random holds of a single interval. The follower sends nothing before its first switch
-  The host message is only sent with the first packet of a hold (message = 0 on the repeats), so the node broadcasts it once
+  The host message is sent with every packet of a hold, so the node carries it in every beacon during the hold
 */
 void hostTx(SimHost &h) {
 
@@ -306,7 +306,7 @@ void hostTx(SimHost &h) {
 
   const HostTxMsg &m = hostTxMsgs[h.lastMsg];
   int dest = (m.dest == DEST_OTHER) ? h.other->nodeId : m.dest;
-  int message = first ? m.message : 0;    // host message once per hold
+  int message = m.message;                // host message on every packet of the hold
 
   char packet[48];
   snprintf(packet, sizeof(packet), "%c%d,%d,%g,%d,%d\n", HOST_START, m.status, m.tasks, m.battery, dest, message);

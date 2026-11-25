@@ -41,8 +41,15 @@ bool OLED::init(void) {
     return false;
   }
 
-  if (!dev.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {    // 0x3C: the usual I2C address of SSD1306 modules
+  // Probe the address first: dev.begin() only fails if its buffer can't be allocated, not if no display answers
+  Wire.beginTransmission(0x3C);                    // 0x3C: the usual I2C address of SSD1306 modules
+  if (Wire.endTransmission() != 0) {
     reportError("OLED: display not found at 0x3C\n");
+    return false;
+  }
+
+  if (!dev.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    reportError("OLED: display buffer could not be allocated\n");
     return false;
   }
 
@@ -70,13 +77,18 @@ void OLED::centerText(const String &text) {
 }
 
 /*
-  Shows text on the OLED (Serial if the OLED failed)
+  Shows text on the OLED (if present) and on Serial
 */
 void OLED::disp(const String &text, uint8_t size, bool center, bool append) {
 
+  // Always mirror the text to Serial
+  Serial.print(text);
+  if (!append && !text.endsWith("\n")) {
+    Serial.print("\n");   // keep each new screen on its own lines
+  }
+
   if (!ok) {
-    Serial.print(text);
-    return;
+    return;               // no display buffer if init failed
   }
 
   // New screen unless appending, or if the text ran off the bottom
@@ -100,6 +112,9 @@ void OLED::disp(const String &text, uint8_t size, bool center, bool append) {
   Clears the OLED display
 */
 void OLED::refresh(void) {
+  if (!ok) {
+    return;               // no display buffer if init failed
+  }
   dev.clearDisplay();
   dev.display();
 }

@@ -154,7 +154,7 @@
 
 // Terrain
 #define TERRAIN_G               0.8       // g, |vertical acceleration - 1 g| at or above this => bad terrain (bump, pothole or rough surface)
-#define ROAD_MIN_SPEED          5.0       // kmph, bad terrain only while moving this fast (no false triggers when parked)
+#define ROAD_MIN_SPEED          0.0       // 5 // kmph, bad terrain only while moving this fast (no false triggers when parked)
 
 // Battery
 #define LOW_BATTERY_THRESHOLD   50        // percent
@@ -217,7 +217,7 @@
 #define LORA_CR       5         // denominator of 4/x
 #define LORA_SYNC     0x12      // private network
 #define LORA_TXPOWER  10        // dBm via PA_BOOST
-#define BEACON_INTVL  15000     // ms between transmissions, shared by my beacons and forwards (keeps the duty cycle at 9.9 %)
+#define BEACON_INTVL  10000     // ms between transmissions, shared by my beacons and forwards (keeps the duty cycle at 9.9 %)
 
 // MAC: random wait before Tx after an Rx (up to ~4 x 1483 ms time on air at SF12)
 #define BACKOFF_MIN_MS  0       // ms
