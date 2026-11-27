@@ -1,0 +1,57 @@
+#!/bin/bash
+# Run one of the TVV simulations, with SUMO started automatically.
+#
+#   tvv-run <sim> [options]
+#
+#   sim:   veins       Veins example (802.11p, Erlangen)
+#          flora       FLoRa example (static LoRaWAN, no SUMO)
+#          lora-v2v    vehicle-to-vehicle LoRa broadcast with CSMA/CA
+#
+#   options:
+#          --cmdenv    no GUI, just run and write results
+#          --sumo-gui  also show SUMO's own traffic GUI (not for flora)
+#          --config X  run config X instead of the default (General)
+#
+# Results are written to the simulation's results/ folder.
+
+set -e
+TVV=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+SIM=$1; shift || true
+UI=Qtenv
+SUMO=sumo
+CONFIG=
+while [ $# -gt 0 ]; do
+    case $1 in
+        --cmdenv) UI=Cmdenv ;;
+        --sumo-gui) SUMO=sumo-gui ;;
+        --config) shift; CONFIG=$1 ;;
+        *) echo "unknown option: $1"; exit 1 ;;
+    esac
+    shift
+done
+
+case $SIM in
+    veins)      DIR=$TVV/veins-5.3.1/examples/veins; ARGS="-c Default"; NEEDS_SUMO=1 ;;
+    flora)      DIR=$TVV/flora-1.2.0/simulations;    ARGS="-c General omnetpp.ini"; NEEDS_SUMO=0 ;;
+    lora-v2v)   DIR=$TVV/lora-v2v/simulations;       ARGS="-c General"; NEEDS_SUMO=1 ;;
+    *) sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac
+
+source "$TVV/tvv-env.sh"
+
+if [ "$NEEDS_SUMO" = 1 ]; then
+    # first free port from 9999 up, so several simulations can run at once
+    PORT=9999
+    while ss -ltn 2>/dev/null | grep -q "127.0.0.1:$PORT "; do PORT=$((PORT + 1)); done
+    veins_launchd -c "$SUMO" -p $PORT >"$DIR/veins_launchd.log" 2>&1 &
+    LAUNCHD_PID=$!
+    trap 'kill $LAUNCHD_PID 2>/dev/null' EXIT
+    sleep 1
+    ARGS="$ARGS --*.manager.port=$PORT"
+    [ $PORT != 9999 ] && echo "SUMO launcher on port $PORT (9999 is in use by another run)"
+fi
+
+[ -n "$CONFIG" ] && ARGS=$(echo "$ARGS" | sed "s/-c [^ ]*/-c $CONFIG/")
+
+cd "$DIR"
+./run -u $UI $ARGS

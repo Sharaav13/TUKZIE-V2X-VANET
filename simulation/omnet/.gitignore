@@ -1,0 +1,10 @@
+# Build outputs (regenerate with: make makefiles && make MODE=release)
+src/out/
+src/Makefile
+src/*_m.cc
+src/*_m.h
+*.so
+
+# Raw simulation output (summaries are in results/)
+simulations/results/
+*.log

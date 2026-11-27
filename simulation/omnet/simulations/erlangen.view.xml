@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- sumo-gui view settings: dark lilac background, black roads, vehicles
+     drawn 8x enlarged in their type colour (ordinary = blue, LoRa = yellow).
+     Buildings are green via their colour in erlangen.poly.xml. -->
+<viewsettings>
+    <scheme name="tvv-lilac">
+        <background backgroundColor="75,59,99" showGrid="0" gridXSize="100.00" gridYSize="100.00"/>
+        <edges laneEdgeMode="0">
+            <colorScheme name="uniform">
+                <entry color="black" name="road"/>
+                <entry color="grey" name="sidewalk"/>
+                <entry color="192,66,44" name="bike lane"/>
+                <entry color="0,0,0,0" name="green verge"/>
+                <entry color="150,200,200" name="waterway"/>
+                <entry color="black" name="railway"/>
+                <entry color="64,0,64" name="rails on road"/>
+                <entry color="92,92,92" name="no passenger"/>
+                <entry color="red" name="closed"/>
+                <entry color="green" name="connector"/>
+                <entry color="orange" name="forbidden"/>
+            </colorScheme>
+        </edges>
+        <vehicles vehicleExaggeration="8.00"/>
+    </scheme>
+</viewsettings>

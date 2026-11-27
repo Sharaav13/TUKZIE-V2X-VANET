@@ -1,0 +1,14 @@
+#!/bin/sh
+# Runs the LoRa V2V simulation. Start "veins_launchd -vv -c sumo" first.
+DIR=$(cd "$(dirname "$0")" && pwd)
+TVV=$(cd "$DIR/../.." && pwd)
+cd "$DIR"
+exec opp_run \
+    -l "$TVV/inet4.5/src/INET" \
+    -l "$TVV/veins-5.3.1/src/veins" \
+    -l "$TVV/veins-5.3.1/subprojects/veins_inet/src/veins_inet" \
+    -l "$TVV/flora-1.2.0/src/flora" \
+    -l "$DIR/../src/lorav2v" \
+    -n "$DIR:$DIR/../src:$TVV/inet4.5/src:$TVV/veins-5.3.1/src/veins:$TVV/veins-5.3.1/subprojects/veins_inet/src/veins_inet:$TVV/flora-1.2.0/src" \
+    --image-path="$TVV/inet4.5/images:$TVV/veins-5.3.1/images" \
+    "$@"
