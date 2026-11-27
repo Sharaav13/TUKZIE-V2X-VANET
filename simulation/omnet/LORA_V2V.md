@@ -1,5 +1,10 @@
 # lora-v2v
 
+> **Setup first.** This is the original README of the base `lora-v2v` project. Its commands assume the setup in
+> [README.md](README.md): the toolchain is installed in `~/TVV` (your Linux home folder, `/home/<user>/TVV`, inside
+> WSL on Windows), this folder has been copied there as `~/TVV/lora-v2v`, and `tvv-env.sh` and `tvv-run` have been
+> copied from `scripts/` to `~/TVV`. Follow [README.md → Setup](README.md#setup) before running anything below.
+
 Car-to-car LoRa broadcast. SUMO vehicles (Veins 5.3.1 + veins_inet) each
 broadcast periodic beacons over a shared 433.6 MHz LoRa channel using a
 broadcast-only CSMA/CA MAC with random backoff. No gateways, no network

@@ -43,13 +43,20 @@ side in one folder. This guide uses `~/TVV`:
 ├── inet4.5/
 ├── flora-1.2.0/
 ├── veins-5.3.1/        (with subprojects/veins_inet)
-├── lora-v2v/           this folder (simulation/omnet of the repo)
-├── tvv-env.sh          from scripts/
-└── tvv-run             from scripts/
+├── lora-v2v/           a copy of this folder (simulation/omnet of the repo), made in Setup step 6
+├── tvv-env.sh          copied from scripts/ in step 6
+└── tvv-run             copied from scripts/ in step 6
 ```
 
+`~` is your Linux home folder, `/home/<user>`, so `~/TVV` is `/home/<user>/TVV`. None of these folders exist until
+you create them in the Setup steps below. Under WSL they are in Ubuntu's own file system, not on the `C:` drive. To
+open them from Windows Explorer, go to `\\wsl.localhost\<distro>\home\<user>\TVV`, where `<distro>` is the name shown
+by `wsl -l` in PowerShell (for example `Ubuntu-24.04` or `Ubuntu`). Or run `explorer.exe .` in a WSL terminal to open
+the folder you are in.
+
 To use a folder other than `~/TVV`, run `export TVV=/path/to/folder` before sourcing `tvv-env.sh`. `tvv-run` finds
-the folder it is in by itself.
+the folder it is in by itself. Keep `lora-v2v` in that same folder, as a real folder rather than a symbolic link:
+relative paths such as `../../inet4.5` are resolved from where the link points, so INET would not be found.
 
 ## Setup
 
@@ -145,8 +152,31 @@ make makefiles
 make -j$(nproc) MODE=release                     # builds src/liblorav2v.so
 ```
 
-Run `source ~/TVV/tvv-env.sh` in every new terminal before building or running. If you change `src/`, run `make` again,
-and also `make makefiles` first if you added a `.cc` or `.msg` file.
+Run `source ~/TVV/tvv-env.sh` in every new terminal before building or running.
+
+#### Two copies: where to edit
+
+After step 6 there are two copies of this folder:
+
+| Copy | Path | Used for |
+|---|---|---|
+| Repo clone | `~/TUKZIE-V2X-VANET/simulation/omnet/` | Version control: edit, commit and pull here |
+| Working copy | `~/TVV/lora-v2v/` | Building and running. Every `make`, `run` and `tvv-run` command uses this copy only |
+
+The two are not linked. Changes in one do not appear in the other until you copy them. The repo is the source of
+truth, so make changes there, then copy them over and rebuild:
+
+```bash
+cp -r ~/TUKZIE-V2X-VANET/simulation/omnet/. ~/TVV/lora-v2v/
+cd ~/TVV/lora-v2v
+make makefiles                                   # only if you added a .cc or .msg file
+make -j$(nproc) MODE=release
+```
+
+This overwrites the working copy's files of the same name. If you edited a file in `~/TVV/lora-v2v` directly, copy it
+back to the repo first, or the edit is lost (for example `cp ~/TVV/lora-v2v/simulations/tvv.ini
+~/TUKZIE-V2X-VANET/simulation/omnet/simulations/`). Build outputs and `simulations/results/` exist only in the
+working copy and are not touched by the copy.
 
 To check the toolchain, `tvv-run flora --cmdenv` runs FLoRa's own example and `tvv-run veins --cmdenv` runs Veins'
 example.
